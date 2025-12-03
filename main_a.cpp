@@ -1,0 +1,1053 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOGDI
+#define NOUSER
+#define NOMINMAX
+
+#include "raylib.h"
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <array>
+#include <unordered_map>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iostream>
+
+// Configuración multiplataforma
+#ifdef _WIN32
+    #include <windows.h>
+    #define SLEEP_MS(ms) Sleep(ms)
+#else
+    #include <unistd.h>
+    #define SLEEP_MS(ms) usleep((ms) * 1000)
+#endif
+
+// Constantes del juego
+namespace GameConstants {
+    constexpr int MAP_WIDTH = 20;
+    constexpr int MAP_HEIGHT = 15;
+    constexpr int TILE_SIZE = 40;
+    constexpr int SCREEN_WIDTH = 800;
+    constexpr int SCREEN_HEIGHT = 600;
+    constexpr int PLAYER_RADIUS = 15;
+    constexpr int PLAYER_SPEED = 3;
+    constexpr int FPS_TARGET = 60;
+    
+    // Tiempos de actualización de hilos (en ms)
+    constexpr int PHYSICS_UPDATE_RATE = 10;
+    constexpr int VALIDATION_UPDATE_RATE = 15;
+    constexpr int AUDIO_UPDATE_RATE = 10;
+    
+    // NUEVO: Sistema de niveles
+    constexpr int TOTAL_LEVELS = 2;
+}
+
+// Enumeraciones
+enum GameScreen { MENU = 0, GAMEPLAY = 1 };
+enum TileType {
+    VACIO = 0,
+    PARED = 1,
+    START_MASTER = 2,
+    START_SLAVE = 3,
+    BOTON_1 = 4,
+    BOTON_2 = 5,
+    BOTON_3 = 6,
+    PUERTA_1 = 7,
+    PUERTA_2 = 8,
+    PUERTA_3 = 9,
+    OBSTACULO_ROJO = 10,
+    OBSTACULO_AZUL = 11,
+    META = 12
+};
+
+// Sistema de logging optimizado
+class Logger {
+private:
+    std::ofstream logfile;
+    std::mutex logMutex;
+    
+public:
+    Logger() {
+        logfile.open("debug_log.txt", std::ios::app);
+    }
+    
+    ~Logger() {
+        if (logfile.is_open()) {
+            logfile.close();
+        }
+    }
+    
+    void write(const std::string& message) {
+        std::lock_guard<std::mutex> lock(logMutex);
+        if (logfile.is_open()) {
+            logfile << message << std::endl;
+        }
+    }
+};
+
+static Logger logger;
+
+// Sistema de audio optimizado CON HILO DEDICADO
+class AudioSystem {
+private:
+    Music music;
+    std::atomic<bool> audioRunning{true};
+    std::atomic<bool> musicPaused{false};
+    std::atomic<float> volume{0.7f};
+    std::thread musicThread;
+    
+public:
+    bool cargarMusica() {
+        if (!IsAudioDeviceReady()) {
+            InitAudioDevice();
+        }
+        
+        music = LoadMusicStream("resources/sound/music/Maze_Quest.ogg");
+        if (music.frameCount == 0) {
+            return false;
+        }
+        
+        // Iniciar hilo de música
+        audioRunning = true;
+        musicThread = std::thread(&AudioSystem::musicThreadFunction, this);
+        
+        return true;
+    }
+    
+    void musicThreadFunction() {
+        logger.write("🎵 MusicThread started");
+        
+        SetMusicVolume(music, volume.load());
+        PlayMusicStream(music);
+        
+        while (audioRunning.load()) {
+            if (!musicPaused.load()) {
+                UpdateMusicStream(music);
+                
+                // Reiniciar música si llegó al final
+                if (GetMusicTimePlayed(music) >= GetMusicTimeLength(music)) {
+                    StopMusicStream(music);
+                    PlayMusicStream(music);
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(GameConstants::AUDIO_UPDATE_RATE));
+        }
+        
+        StopMusicStream(music);
+        logger.write("🎵 MusicThread finished");
+    }
+    
+    void togglePausa() {
+        musicPaused = !musicPaused;
+        if (music.frameCount == 0) return;
+        
+        if (musicPaused) {
+            PauseMusicStream(music);
+        } else {
+            ResumeMusicStream(music);
+        }
+    }
+    
+    void setVolume(float newVolume) {
+        volume.store(newVolume);
+        if (music.frameCount > 0) {
+            SetMusicVolume(music, newVolume);
+        }
+    }
+    
+    float getVolume() const { return volume.load(); }
+    bool isPaused() const { return musicPaused.load(); }
+    
+    void cerrarAudio() {
+        audioRunning = false;
+        if (musicThread.joinable()) {
+            musicThread.join();
+        }
+        if (music.frameCount > 0) {
+            UnloadMusicStream(music);
+        }
+        if (IsAudioDeviceReady()) {
+            CloseAudioDevice();
+        }
+    }
+};
+
+// Estado del juego optimizado - CON SISTEMA DE NIVELES
+struct GameState {
+    mutable std::mutex mtx;
+    
+    using MapArray = std::array<std::array<int, GameConstants::MAP_WIDTH>, GameConstants::MAP_HEIGHT>;
+    MapArray laberinto;
+    
+    Vector2 masterPos;
+    Vector2 slavePos;
+    
+    // Estados atómicos
+    std::atomic<bool> button1Active{false};
+    std::atomic<bool> button2Active{false};
+    std::atomic<bool> button3Active{false};
+    
+    std::atomic<bool> masterInGoal{false};
+    std::atomic<bool> slaveInGoal{false};
+    std::atomic<bool> bothInGoal{false};
+    
+    std::atomic<bool> gameRunning{true};
+    
+    // NUEVO: Sistema de niveles
+    std::atomic<int> currentLevel{0};
+    std::atomic<bool> levelCompleted{false};
+};
+
+// Gestor de texturas optimizado
+class TextureManager {
+private:
+    std::unordered_map<std::string, Texture2D> textures;
+    std::unordered_map<std::string, Font> fonts;
+    bool texturesLoaded = false;
+    
+public:
+    Font loadFont(const char* fileName, int fontSize = 32, int fontCharsCount = 250) {
+        std::string key = std::string(fileName) + "_" + std::to_string(fontSize);
+        
+        auto it = fonts.find(key);
+        if (it != fonts.end()) {
+            return it->second;
+        }
+        
+        Font font = LoadFontEx(fileName, fontSize, 0, fontCharsCount);
+        if (font.texture.id == 0) {
+            logger.write("❌ Error: No se pudo cargar la fuente: " + std::string(fileName));
+            // Fallback a fuente por defecto
+            font = GetFontDefault();
+        } else {
+            logger.write("✅ Fuente cargada: " + std::string(fileName));
+        }
+        
+        fonts[key] = font;
+        return font;
+    }
+    
+    Font getFont(const std::string& name, int fontSize = 32) const {
+        std::string key = name + "_" + std::to_string(fontSize);
+        auto it = fonts.find(key);
+        return (it != fonts.end()) ? it->second : GetFontDefault();
+    }
+
+    Texture2D loadAndRescaleTexture(const char* fileName, int targetWidth, int targetHeight) {
+        std::string key = fileName;
+        
+        auto it = textures.find(key);
+        if (it != textures.end()) {
+            return it->second;
+        }
+        
+        Image image = LoadImage(fileName);
+        if (image.data == nullptr) {
+            logger.write("❌ Error: No se pudo cargar la textura: " + std::string(fileName));
+            
+            Image fallback = GenImageColor(targetWidth, targetHeight, MAGENTA);
+            Texture2D texture = LoadTextureFromImage(fallback);
+            UnloadImage(fallback);
+            
+            textures[key] = texture;
+            return texture;
+        }
+        
+        ImageResize(&image, targetWidth, targetHeight);
+        Texture2D texture = LoadTextureFromImage(image);
+        UnloadImage(image);
+        
+        textures[key] = texture;
+        logger.write("✅ Textura cargada: " + std::string(fileName));
+        
+        return texture;
+    }
+    
+    Texture2D getTexture(const std::string& name) const {
+        auto it = textures.find(name);
+        return (it != textures.end()) ? it->second : Texture2D{};
+    }
+    
+    bool loadAllTextures() {
+        if (texturesLoaded) return true;
+        
+        logger.write("📥 Cargando y reescalando texturas...");
+        
+        textures["menu_background"] = LoadTexture("resources/backgrounds/menu_bg.png");
+        if (textures["menu_background"].id == 0) {
+            logger.write("❌ Error: No se pudo cargar el fondo del menú");
+        } else {
+            logger.write("✅ Fondo del menú cargado");
+        }
+        
+        textures["piso"] = loadAndRescaleTexture("resources/sprites/piso.png", 
+                                               GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["pared"] = loadAndRescaleTexture("resources/sprites/pared.png", 
+                                                GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["master"] = loadAndRescaleTexture("resources/sprites/master.png", 
+                                                 GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["slave"] = loadAndRescaleTexture("resources/sprites/slave.png", 
+                                                GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["boton1"] = loadAndRescaleTexture("resources/sprites/boton1.png", 
+                                                 GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["boton2"] = loadAndRescaleTexture("resources/sprites/boton2.png", 
+                                                 GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["boton3"] = loadAndRescaleTexture("resources/sprites/boton3.png", 
+                                                 GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta1Cerrada"] = loadAndRescaleTexture("resources/sprites/puerta_roja_cerrada.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta2Cerrada"] = loadAndRescaleTexture("resources/sprites/puerta_azul_cerrada.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta1Abierta"] = loadAndRescaleTexture("resources/sprites/puerta_roja_abierta.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta2Abierta"] = loadAndRescaleTexture("resources/sprites/puerta_azul_abierta.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta3Cerrada"] = loadAndRescaleTexture("resources/sprites/puerta_morada_cerrada.png",
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["puerta3Abierta"] = loadAndRescaleTexture("resources/sprites/puerta_morada_abierta.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["ObstaculoRojo"] = loadAndRescaleTexture("resources/sprites/obstaculo_rojo.png",
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["ObstaculoAzul"] = loadAndRescaleTexture("resources/sprites/obstaculo_azul.png", 
+                                                         GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        textures["meta"] = loadAndRescaleTexture("resources/sprites/meta.png", 
+                                               GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
+        loadFont("resources/fonts/Arrows.ttf", 20, 250);
+        loadFont("resources/fonts/upheavtt.ttf", 20, 250);
+        
+        texturesLoaded = true;
+        logger.write("🎨 Texturas cargadas correctamente");
+        return true;
+    }
+    
+    void unloadAll() {
+        for (auto& pair : textures) {
+            UnloadTexture(pair.second);
+        }
+        textures.clear();
+        texturesLoaded = false;
+        logger.write("🧹 Todas las texturas liberadas");
+    }
+    
+    bool areTexturesLoaded() const { return texturesLoaded; }
+};
+
+// Sistema de colisiones optimizado
+class CollisionSystem {
+private:
+    static constexpr int COLLISION_CHECK_RADIUS = 1;
+    
+public:
+    static bool canPassTile(int tileType, bool isMaster, const GameState& state) {
+        switch (tileType) {
+            case VACIO: case START_MASTER: case START_SLAVE: 
+            case BOTON_1: case BOTON_2: case BOTON_3: case META:
+                return true;
+            case PARED:
+                return false;
+            case PUERTA_1:
+                return state.button1Active;
+            case PUERTA_2:
+                return state.button2Active;
+            case PUERTA_3:
+                return state.button3Active;
+            case OBSTACULO_ROJO:
+                return isMaster;
+            case OBSTACULO_AZUL:
+                return !isMaster;
+            default:
+                return false;
+        }
+    }
+    
+    static bool checkCollisionWithLaberinto(Vector2 position, float radius, bool isMaster, const GameState& state) {
+        using namespace GameConstants;
+        
+        if (position.x < radius || position.y < radius || 
+            position.x >= MAP_WIDTH * TILE_SIZE - radius || 
+            position.y >= MAP_HEIGHT * TILE_SIZE - radius) {
+            return true;
+        }
+        
+        int centerTileX = static_cast<int>(position.x / TILE_SIZE);
+        int centerTileY = static_cast<int>(position.y / TILE_SIZE);
+        
+        for (int y = centerTileY - COLLISION_CHECK_RADIUS; y <= centerTileY + COLLISION_CHECK_RADIUS; y++) {
+            for (int x = centerTileX - COLLISION_CHECK_RADIUS; x <= centerTileX + COLLISION_CHECK_RADIUS; x++) {
+                if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
+                    int tileType = state.laberinto[y][x];
+                    
+                    if (!canPassTile(tileType, isMaster, state)) {
+                        Rectangle tileRect = {
+                            static_cast<float>(x * TILE_SIZE), 
+                            static_cast<float>(y * TILE_SIZE), 
+                            static_cast<float>(TILE_SIZE), 
+                            static_cast<float>(TILE_SIZE)
+                        };
+                        if (CheckCollisionCircleRec(position, radius, tileRect)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+};
+
+// Sistema de movimiento optimizado
+class MovementSystem {
+private:
+    static constexpr float BORDER_MARGIN = 1.0f;
+    
+    static float clamp(float value, float min, float max) {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+    }
+    
+public:
+    static Vector2 calculateNewPosition(Vector2 currentPos, const std::vector<int>& keys) {
+        Vector2 newPos = currentPos;
+        
+        for (size_t i = 0; i < keys.size(); i += 4) {
+            if (IsKeyDown(keys[i])) newPos.x -= GameConstants::PLAYER_SPEED;
+            if (IsKeyDown(keys[i+1])) newPos.x += GameConstants::PLAYER_SPEED;
+            if (IsKeyDown(keys[i+2])) newPos.y -= GameConstants::PLAYER_SPEED;
+            if (IsKeyDown(keys[i+3])) newPos.y += GameConstants::PLAYER_SPEED;
+        }
+        
+        const float maxX = GameConstants::MAP_WIDTH * GameConstants::TILE_SIZE - BORDER_MARGIN;
+        const float maxY = GameConstants::MAP_HEIGHT * GameConstants::TILE_SIZE - BORDER_MARGIN;
+        
+        newPos.x = clamp(newPos.x, BORDER_MARGIN, maxX);
+        newPos.y = clamp(newPos.y, BORDER_MARGIN, maxY);
+        
+        return newPos;
+    }
+};
+
+// Hilos del juego optimizados
+void physicsThread(GameState& state, bool isMaster, const std::vector<int>& keys) {
+    logger.write((isMaster ? "Master" : "Slave") + std::string("PhysicsThread started"));
+    
+    while (state.gameRunning) {
+        Vector2 currentPos;
+        {
+            std::lock_guard<std::mutex> lock(state.mtx);
+            currentPos = isMaster ? state.masterPos : state.slavePos;
+        }
+        
+        Vector2 newPos = MovementSystem::calculateNewPosition(currentPos, keys);
+        
+        if (!CollisionSystem::checkCollisionWithLaberinto(newPos, GameConstants::PLAYER_RADIUS, isMaster, state)) {
+            std::lock_guard<std::mutex> lock(state.mtx);
+            if (isMaster) {
+                state.masterPos = newPos;
+            } else {
+                state.slavePos = newPos;
+            }
+        }
+        
+        SLEEP_MS(GameConstants::PHYSICS_UPDATE_RATE);
+    }
+    logger.write((isMaster ? "Master" : "Slave") + std::string("PhysicsThread finished"));
+}
+
+void validationThread(GameState& state) {
+    logger.write("ValidationThread started");
+    
+    while (state.gameRunning) {
+        Vector2 masterPos, slavePos;
+        {
+            std::lock_guard<std::mutex> lock(state.mtx);
+            masterPos = state.masterPos;
+            slavePos = state.slavePos;
+        }
+        
+        int masterTileX = static_cast<int>(masterPos.x / GameConstants::TILE_SIZE);
+        int masterTileY = static_cast<int>(masterPos.y / GameConstants::TILE_SIZE);
+        int slaveTileX = static_cast<int>(slavePos.x / GameConstants::TILE_SIZE);
+        int slaveTileY = static_cast<int>(slavePos.y / GameConstants::TILE_SIZE);
+        
+        // Botones 1 y 2 (activación individual)
+        if (masterTileX >= 0 && masterTileX < GameConstants::MAP_WIDTH && 
+            masterTileY >= 0 && masterTileY < GameConstants::MAP_HEIGHT) {
+            int tile = state.laberinto[masterTileY][masterTileX];
+            if (tile == BOTON_1) state.button1Active = true;
+        }
+        
+        if (slaveTileX >= 0 && slaveTileX < GameConstants::MAP_WIDTH && 
+            slaveTileY >= 0 && slaveTileY < GameConstants::MAP_HEIGHT) {
+            int tile = state.laberinto[slaveTileY][slaveTileX];
+            if (tile == BOTON_2) state.button2Active = true;
+        }
+        if (!state.button3Active){
+          // NUEVO: Botón 3 requiere AMBOS jugadores
+          bool masterOnButton3 = false;
+          bool slaveOnButton3 = false;
+        
+          if (masterTileX >= 0 && masterTileX < GameConstants::MAP_WIDTH && 
+              masterTileY >= 0 && masterTileY < GameConstants::MAP_HEIGHT) {
+              int tile = state.laberinto[masterTileY][masterTileX];
+              if (tile == BOTON_3) masterOnButton3 = true;
+          }
+        
+          if (slaveTileX >= 0 && slaveTileX < GameConstants::MAP_WIDTH && 
+              slaveTileY >= 0 && slaveTileY < GameConstants::MAP_HEIGHT) {
+              int tile = state.laberinto[slaveTileY][slaveTileX];
+              if (tile == BOTON_3) slaveOnButton3 = true;
+          }
+        
+          // Solo activar si AMBOS están en el botón
+          state.button3Active = masterOnButton3 && slaveOnButton3;
+        }
+        // Verificar victoria (se mantiene igual)
+        bool masterOnGoal = (masterTileX >= 0 && masterTileX < GameConstants::MAP_WIDTH && 
+                           masterTileY >= 0 && masterTileY < GameConstants::MAP_HEIGHT) &&
+                           (state.laberinto[masterTileY][masterTileX] == META);
+        bool slaveOnGoal = (slaveTileX >= 0 && slaveTileX < GameConstants::MAP_WIDTH && 
+                          slaveTileY >= 0 && slaveTileY < GameConstants::MAP_HEIGHT) &&
+                          (state.laberinto[slaveTileY][slaveTileX] == META);
+        
+        state.masterInGoal = masterOnGoal;
+        state.slaveInGoal = slaveOnGoal;
+        state.bothInGoal = masterOnGoal && slaveOnGoal;
+        
+        if (state.bothInGoal && !state.levelCompleted) {
+            state.levelCompleted = true;
+            logger.write("✅ Nivel " + std::to_string(state.currentLevel.load()) + " completado!");
+        }
+        
+        SLEEP_MS(GameConstants::VALIDATION_UPDATE_RATE);
+    }
+    logger.write("ValidationThread finished");
+}
+
+// Sistema de renderizado optimizado
+class RenderSystem {
+private:
+    TextureManager& textureManager;
+    
+public:
+    RenderSystem(TextureManager& tm) : textureManager(tm) {}
+    bool drawTextWithFont(const std::string& fontName, const std::string& text, 
+                         Vector2 position, float fontSize, Color color) {
+        Font customFont = textureManager.getFont(fontName, static_cast<int>(fontSize));
+        if (customFont.texture.id != 0 && customFont.texture.id != GetFontDefault().texture.id) {
+            DrawTextEx(customFont, text.c_str(), position, fontSize, 2, color);
+            return true;
+        } else {
+            // Fallback a fuente por defecto
+            DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, color);
+            return false;
+        }
+    }
+    void drawLaberinto(const GameState& state) {
+        for (int y = 0; y < GameConstants::MAP_HEIGHT; y++) {
+            for (int x = 0; x < GameConstants::MAP_WIDTH; x++) {
+                Rectangle destRect = {
+                    static_cast<float>(x * GameConstants::TILE_SIZE),
+                    static_cast<float>(y * GameConstants::TILE_SIZE),
+                    static_cast<float>(GameConstants::TILE_SIZE),
+                    static_cast<float>(GameConstants::TILE_SIZE)
+                };
+                int tileType = state.laberinto[y][x];
+                
+                drawTexture("piso", destRect, WHITE);
+                drawTileContent(tileType, destRect, state);
+            }
+        }
+    }
+    
+    void drawPlayers(GameState& state) {
+        std::lock_guard<std::mutex> lock(state.mtx);
+        
+        Rectangle masterDest = {
+            state.masterPos.x - GameConstants::TILE_SIZE/2, 
+            state.masterPos.y - GameConstants::TILE_SIZE/2, 
+            static_cast<float>(GameConstants::TILE_SIZE), 
+            static_cast<float>(GameConstants::TILE_SIZE)
+        };
+        drawTexture("master", masterDest, WHITE);
+        
+        Rectangle slaveDest = {
+            state.slavePos.x - GameConstants::TILE_SIZE/2, 
+            state.slavePos.y - GameConstants::TILE_SIZE/2, 
+            static_cast<float>(GameConstants::TILE_SIZE), 
+            static_cast<float>(GameConstants::TILE_SIZE)
+        };
+        drawTexture("slave", slaveDest, WHITE);
+    }
+    
+private:
+    void drawTexture(const std::string& textureName, const Rectangle& destRect, Color tint) {
+        Texture2D texture = textureManager.getTexture(textureName);
+        if (texture.id != 0) {
+            DrawTexturePro(texture, 
+                          {0, 0, (float)texture.width, (float)texture.height},
+                          destRect, {0, 0}, 0, tint);
+        }
+    }
+    
+    void drawTileContent(int tileType, const Rectangle& destRect, const GameState& state) {
+        switch (tileType) {
+            case PARED:
+                drawTexture("pared", destRect, WHITE);
+                break;
+                
+            case BOTON_1:
+                drawTexture("boton1", destRect, state.button1Active ? GREEN : WHITE);
+                break;
+                
+            case BOTON_2:
+                drawTexture("boton2", destRect, state.button2Active ? GREEN : WHITE);
+                break;
+                
+            case BOTON_3:
+                drawTexture("boton3", destRect, state.button3Active ? GREEN : WHITE);
+                break;
+                
+            case PUERTA_1:
+                if (state.button1Active) {
+                    drawTexture("puerta1Abierta", destRect, WHITE);
+                } else {
+                    drawTexture("puerta1Cerrada", destRect, WHITE);
+                }
+                break;
+                
+            case PUERTA_2:
+                if (state.button2Active) {
+                    drawTexture("puerta2Abierta", destRect, WHITE);
+                } else {
+                    drawTexture("puerta2Cerrada", destRect, WHITE);
+                }
+                break;
+            
+            case PUERTA_3:
+                if (state.button3Active) {
+                    drawTexture("puerta3Abierta", destRect, WHITE);
+                } else {
+                    drawTexture("puerta3Cerrada", destRect, WHITE);
+                }
+                break;
+                
+            case OBSTACULO_ROJO:
+                // NUEVO: Sprite temporal - reemplaza cuando tengas el sprite real
+                drawTexture("ObstaculoRojo", destRect, WHITE);
+                break;
+                
+            case OBSTACULO_AZUL:
+                // NUEVO: Sprite temporal - reemplaza cuando tengas el sprite real
+                drawTexture("ObstaculoAzul", destRect, WHITE);
+                break;
+                
+            case META:
+                drawTexture("meta", destRect, state.bothInGoal ? GREEN : WHITE);
+                break;
+                
+            default:
+                break;
+        }
+    }
+};
+
+// Sistema de menú optimizado
+class MenuSystem {
+private:
+    Rectangle playButton;
+    Rectangle exitButton;
+    TextureManager& textureManager;
+    
+public:
+    MenuSystem(TextureManager& tm) : textureManager(tm) {
+        playButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2, 200, 50 };
+        exitButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2 + 70, 200, 50 };
+    }
+    
+    void draw() {
+        Texture2D background = textureManager.getTexture("menu_background");
+        if (background.id != 0) {
+            // Escalar la imagen para que cubra toda la pantalla
+            DrawTexturePro(background,
+                          {0, 0, (float)background.width, (float)background.height},
+                          {0, 0, (float)GameConstants::SCREEN_WIDTH, (float)GameConstants::SCREEN_HEIGHT},
+                          {0, 0}, 0, WHITE);
+        } else {
+            // Fallback: fondo blanco si no hay imagen
+            ClearBackground(RAYWHITE);
+        }
+        
+        Font titleFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 60);
+        if (titleFont.texture.id != 0 && titleFont.texture.id != GetFontDefault().texture.id) {
+        // Usar la nueva fuente upheavtt
+        DrawTextEx(titleFont, "DuoMaze", 
+                   Vector2{GameConstants::SCREEN_WIDTH/2 - MeasureTextEx(titleFont, "DuoMaze", 60, 2).x/2, 
+                           GameConstants::SCREEN_HEIGHT/4}, 
+                   60, 2, DARKBLUE);
+        } else {
+          // Fallback a la fuente por defecto si upheavtt no se pudo cargar
+          DrawText("DuoMaze", 
+                   GameConstants::SCREEN_WIDTH/2 - MeasureText("DuoMaze", 60)/2, 
+                   GameConstants::SCREEN_HEIGHT/4, 60, DARKBLUE);
+        }
+        /*DrawText("DuoMaze", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("DuoMaze", 60)/2, 
+                 GameConstants::SCREEN_HEIGHT/4, 60, DARKBLUE);*/
+        
+        DrawText("Cooperación en el Laberinto", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Cooperación en el Laberinto", 20)/2, 
+                 GameConstants::SCREEN_HEIGHT/3 + 20, 20, DARKGRAY);
+        
+        Vector2 mousePoint = GetMousePosition();
+        DrawRectangleRec(playButton, 
+            CheckCollisionPointRec(mousePoint, playButton) ? BLUE : SKYBLUE);
+        DrawRectangleLinesEx(playButton, 2, DARKBLUE);
+        DrawText("JUGAR", 
+                 playButton.x + playButton.width/2 - MeasureText("JUGAR", 30)/2,
+                 playButton.y + playButton.height/2 - 15, 30, WHITE);
+        
+        DrawRectangleRec(exitButton, 
+            CheckCollisionPointRec(mousePoint, exitButton) ? RED : PINK);
+        DrawRectangleLinesEx(exitButton, 2, MAROON);
+        DrawText("SALIR", 
+                 exitButton.x + exitButton.width/2 - MeasureText("SALIR", 30)/2,
+                 exitButton.y + exitButton.height/2 - 15, 30, WHITE);
+        
+        DrawText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 16)/2,
+                 GameConstants::SCREEN_HEIGHT - 50, 16, DARKGRAY);
+    }
+    
+    bool isPlayButtonPressed() {
+        Vector2 mousePoint = GetMousePosition();
+        return CheckCollisionPointRec(mousePoint, playButton) && 
+               IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    }
+    
+    bool isExitButtonPressed() {
+        Vector2 mousePoint = GetMousePosition();
+        return CheckCollisionPointRec(mousePoint, exitButton) && 
+               IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    }
+};
+
+// NUEVO: Sistema de niveles expandido
+class LevelSystem {
+public:
+    static void initializeLevel(GameState& state, int level) {
+        // Resetear estados
+        state.button1Active = false;
+        state.button2Active = false;
+        state.button3Active = false;
+        state.masterInGoal = false;
+        state.slaveInGoal = false;
+        state.bothInGoal = false;
+        state.levelCompleted = false;
+        
+        state.currentLevel = level;
+        
+        switch(level) {
+            case 0: initializeLevel0(state); break;
+            case 1: initializeLevel1(state); break;
+            default: initializeLevel0(state); break;
+        }
+        
+        logger.write("🎮 Nivel " + std::to_string(level) + " cargado");
+    }
+    
+private:
+    static void loadLevelData(GameState& state, const int levelData[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH]) {
+        for (int y = 0; y < GameConstants::MAP_HEIGHT; y++) {
+            for (int x = 0; x < GameConstants::MAP_WIDTH; x++) {
+                state.laberinto[y][x] = levelData[y][x];
+                
+                if (levelData[y][x] == START_MASTER) {
+                    state.masterPos = {
+                        static_cast<float>(x * GameConstants::TILE_SIZE + GameConstants::TILE_SIZE/2), 
+                        static_cast<float>(y * GameConstants::TILE_SIZE + GameConstants::TILE_SIZE/2)
+                    };
+                }
+                if (levelData[y][x] == START_SLAVE) {
+                    state.slavePos = {
+                        static_cast<float>(x * GameConstants::TILE_SIZE + GameConstants::TILE_SIZE/2), 
+                        static_cast<float>(y * GameConstants::TILE_SIZE + GameConstants::TILE_SIZE/2)
+                    };
+                }
+            }
+        }
+    }
+    
+    static void initializeLevel0(GameState& state) {
+        constexpr int nivel0[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+            {1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 4, 0, 0, 0, 1},
+            {1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1},
+            {1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1},
+            {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1},
+            {1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1},
+            {1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 8, 1},
+            {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 3, 0, 0, 0, 0, 0, 0, 7, 0, 5, 0, 0, 0, 0, 0, 0, 0, 12, 1},
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+          };
+        
+        loadLevelData(state, nivel0);
+    }
+    
+    static void initializeLevel1(GameState& state) {
+        constexpr int nivel1[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+            {1, 0, 0, 0, 11, 0, 0, 0, 0, 0, 6, 1, 0, 0, 0, 0, 4, 7, 0, 1},
+            {1, 0, 1, 0, 1, 8, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1},
+            {1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
+            {1, 0, 0, 0, 10, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
+            {1, 1, 0, 1, 1, 1, 0, 0, 1, 1, 9, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 1},
+            {1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 9, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1},
+            {1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1},
+            {1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 12, 0, 0, 1, 0, 1},
+            {1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+            {1, 2, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1},
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+        };
+        
+        loadLevelData(state, nivel1);
+    }
+};
+
+// Controlador de audio en pantalla
+class AudioOverlay {
+private:
+    std::atomic<bool> mostrarControles{false};
+    double tiempoOcultarControles{0};
+    
+public:
+    void update() {
+        if (GetTime() > tiempoOcultarControles) {
+            mostrarControles = false;
+        }
+    }
+    
+    void draw() {
+        if (!mostrarControles) return;
+        
+        DrawRectangle(10, GameConstants::SCREEN_HEIGHT - 120, 250, 110, Fade(BLACK, 0.8f));
+        DrawText("CONTROLES AUDIO:", 20, GameConstants::SCREEN_HEIGHT - 110, 16, YELLOW);
+        DrawText("P: Pausar/Reanudar musica", 20, GameConstants::SCREEN_HEIGHT - 90, 14, WHITE);
+        DrawText("M: Mutear", 20, GameConstants::SCREEN_HEIGHT - 70, 14, WHITE);
+        DrawText("U: Subir volumen", 20, GameConstants::SCREEN_HEIGHT - 50, 14, WHITE);
+        DrawText("V: Mostrar/ocultar controles", 20, GameConstants::SCREEN_HEIGHT - 30, 14, WHITE);
+    }
+    
+    void showTemporarily(double seconds = 3.0) {
+        mostrarControles = true;
+        tiempoOcultarControles = GetTime() + seconds;
+    }
+    
+    void toggle() {
+        mostrarControles = !mostrarControles;
+        if (mostrarControles) {
+            tiempoOcultarControles = GetTime() + 3.0;
+        }
+    }
+};
+
+int main() {
+    logger.write("=== DuoMaze Iniciado ===");
+    
+    InitWindow(GameConstants::SCREEN_WIDTH, GameConstants::SCREEN_HEIGHT, "DuoMaze - Sistema de Niveles");
+    SetTargetFPS(GameConstants::FPS_TARGET);
+
+    AudioSystem audio;
+    GameState gameState;
+    TextureManager textureManager;
+    RenderSystem renderSystem(textureManager);
+    MenuSystem menuSystem(textureManager);
+    AudioOverlay audioOverlay;
+    
+    GameScreen currentScreen = MENU;
+    bool shouldClose = false;
+    
+    textureManager.loadAllTextures();
+    audio.cargarMusica();
+
+    const std::vector<int> masterKeys = {KEY_A, KEY_D, KEY_W, KEY_S};
+    const std::vector<int> slaveKeys = {KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN};
+    
+    std::thread masterThread;
+    std::thread slaveThread;
+    std::thread validatorThread;
+
+    while (!WindowShouldClose() && !shouldClose) {
+        if (IsKeyPressed(KEY_P)) {
+            audio.togglePausa();
+            audioOverlay.showTemporarily();
+        }
+        
+        if (IsKeyPressed(KEY_M)) {
+            audio.setVolume(0.0f);
+            audioOverlay.showTemporarily();
+        }
+        
+        if (IsKeyPressed(KEY_U)) {
+            audio.setVolume(0.7f);
+            audioOverlay.showTemporarily();
+        }
+        
+        if (IsKeyPressed(KEY_V)) {
+            audioOverlay.toggle();
+        }
+        
+        audioOverlay.update();
+
+        switch (currentScreen) {
+            case MENU: {
+                if (menuSystem.isPlayButtonPressed()) {
+                    // NUEVO: Siempre empezar desde nivel 0
+                    LevelSystem::initializeLevel(gameState, 0);
+                    gameState.gameRunning = true;
+                    
+                    masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
+                    slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
+                    validatorThread = std::thread(validationThread, std::ref(gameState));
+                    
+                    currentScreen = GAMEPLAY;
+                    logger.write("Juego iniciado - Nivel 0");
+                }
+                
+                if (menuSystem.isExitButtonPressed()) {
+                    shouldClose = true;
+                    logger.write("Juego cerrado desde menú");
+                }
+            } break;
+            
+            case GAMEPLAY: {
+                // NUEVO: Lógica de transición entre niveles
+                if (gameState.levelCompleted && IsKeyPressed(KEY_ENTER)) {
+                    int nextLevel = gameState.currentLevel + 1;
+                    
+                    if (nextLevel < GameConstants::TOTAL_LEVELS) {
+                        // Cargar siguiente nivel
+                        LevelSystem::initializeLevel(gameState, nextLevel);
+                        logger.write("Avanzando al nivel " + std::to_string(nextLevel));
+                    } else {
+                        // Volver al menú (reinicio tipo Super Mario)
+                        gameState.gameRunning = false;
+                        
+                        if (masterThread.joinable()) masterThread.join();
+                        if (slaveThread.joinable()) slaveThread.join();
+                        if (validatorThread.joinable()) validatorThread.join();
+                        
+                        currentScreen = MENU;
+                        logger.write("Todos los niveles completados - Volviendo al menú");
+                    }
+                }
+            } break;
+        }
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        switch (currentScreen) {
+            case MENU:
+                menuSystem.draw();
+                break;
+                
+            case GAMEPLAY:
+                renderSystem.drawLaberinto(gameState);
+                renderSystem.drawPlayers(gameState);
+                
+                // UI del juego
+                DrawText("Master (Rojo): WASD", 10, 10, 20, RED);
+    
+                // Esquina superior derecha - Slave  
+                DrawText("Slave (Azul): ", GameConstants::SCREEN_WIDTH - 250, 10, 20, BLUE);
+                
+                bool fuenteCargada = renderSystem.drawTextWithFont("resources/fonts/Arrows.ttf", "CBDA", 
+                  Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 20, BLUE);
+
+                // Si la fuente NO se cargó, mostrar "Flechas direccionales" en lugar de "CBDA"
+                if (!fuenteCargada) {
+                  // Dibujar "Flechas direccionales" en la posición donde iría "CBDA"
+                  DrawRectangle(GameConstants::SCREEN_WIDTH - 110, 5, 60, 25, SKYBLUE);
+                  DrawText("Flechas direccionales", GameConstants::SCREEN_WIDTH - 250, 30, 20, BLUE);
+                } 
+                
+                DrawText(TextFormat("NIVEL %d", gameState.currentLevel.load() + 1), 
+                         10, 30, 20, GOLD);
+                /*
+                DrawText(TextFormat("Botón 1 (Rojo): %s", gameState.button1Active ? "ACTIVADO" : "INACTIVO"), 
+                         10, 40, 18, gameState.button1Active ? GREEN : RED);
+                DrawText(TextFormat("Botón 2 (Azul): %s", gameState.button2Active ? "ACTIVADO" : "INACTIVO"), 
+                         10, 70, 18, gameState.button2Active ? GREEN : BLUE);
+                DrawText(TextFormat("Botón 3 (Ambos): %s", gameState.button3Active ? "ACTIVADO" : "INACTIVO"), 
+                         10, 100, 18, gameState.button3Active ? GREEN : ORANGE);
+                
+                DrawText(TextFormat("Master: %s", gameState.masterInGoal ? "EN META" : "EN CAMINO"), 
+                         10, 130, 18, gameState.masterInGoal ? GREEN : RED);
+                DrawText(TextFormat("Slave: %s", gameState.slaveInGoal ? "EN META" : "EN CAMINO"), 
+                         10, 160, 18, gameState.slaveInGoal ? GREEN : BLUE);
+               */
+                
+                // NUEVO: Pantallas de victoria diferenciadas
+                if (gameState.levelCompleted) {
+                    DrawRectangle(0, GameConstants::SCREEN_HEIGHT/2 - 60, GameConstants::SCREEN_WIDTH, 120, Fade(BLACK, 0.8f));
+                    
+                    if (gameState.currentLevel < GameConstants::TOTAL_LEVELS - 1) {
+                        // No es el último nivel
+                        DrawText("¡NIVEL COMPLETADO!", 
+                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("¡NIVEL COMPLETADO!", 40)/2, 
+                                 GameConstants::SCREEN_HEIGHT/2 - 40, 40, GREEN);
+                        DrawText("Presiona ENTER para siguiente nivel", 
+                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Presiona ENTER para siguiente nivel", 20)/2, 
+                                 GameConstants::SCREEN_HEIGHT/2 + 10, 20, WHITE);
+                    } else {
+                        // Último nivel
+                        DrawText("¡JUEGO COMPLETADO!", 
+                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("¡JUEGO COMPLETADO!", 40)/2, 
+                                 GameConstants::SCREEN_HEIGHT/2 - 40, 40, GOLD);
+                        DrawText("Presiona ENTER para volver al menú", 
+                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Presiona ENTER para volver al menú", 20)/2, 
+                                 GameConstants::SCREEN_HEIGHT/2 + 10, 20, WHITE);
+                    }
+                }
+                
+                DrawText("Controles: WASD (Master), Flechas (Slave)", 
+                         GameConstants::SCREEN_WIDTH/2 - MeasureText("Controles: WASD (Master), Flechas (Slave)", 16)/2, 
+                         GameConstants::SCREEN_HEIGHT - 25, 16, DARKGRAY);
+                
+                break;
+        }
+        
+        audioOverlay.draw();
+        
+        EndDrawing();
+    }
+
+    logger.write("=== Cerrando DuoMaze ===");
+    
+    gameState.gameRunning = false;
+    
+    if (masterThread.joinable()) masterThread.join();
+    if (slaveThread.joinable()) slaveThread.join();
+    if (validatorThread.joinable()) validatorThread.join();
+    
+    audio.cerrarAudio();
+    textureManager.unloadAll();
+    CloseWindow();
+    
+    logger.write("=== DuoMaze Cerrado Correctamente ===");
+    return 0;
+}

@@ -1,0 +1,50 @@
+CREADOR DE NIVELES - DUOMAZE
+============================
+
+DESCRIPCIÓN:
+Herramienta de desarrollo para crear y editar niveles para el juego DuoMaze.
+
+CONTROLES:
+- Click IZQUIERDO: Ciclar entre tipos de tile (0-12)
+- Click DERECHO: Borrar tile (poner VACIO)
+- G: Mostrar/ocultar grid
+- C: Limpiar nivel completo
+- S: Guardar nivel generado
+
+TIPOS DE TILE:
+ 0: Vacio          1: Pared
+ 2: Start Master   3: Start Slave  
+ 4: Boton 1        5: Boton 2
+ 6: Boton 3        7: Puerta 1
+ 8: Puerta 2       9: Puerta 3
+10: Obst. Rojo    11: Obst. Azul
+12: Meta
+
+CARACTERÍSTICAS:
+✅ Bordes automáticos (siempre activos)
+✅ Grid con coordenadas
+✅ Panel informativo en tiempo real
+✅ Exportación directa a código C++
+
+USO:
+1. Diseña el nivel haciendo click en los tiles
+2. Coloca elementos especiales (start, meta, botones, puertas)
+3. Presiona S para guardar
+4. El código se guarda en 'nivel_generado.txt'
+5. Copia el código en LevelSystem::initializeLevelX() del juego
+
+NOTAS:
+- Los bordes están bloqueados y no se pueden modificar
+- Asegúrate de incluir al menos un START_MASTER, START_SLAVE y META
+- Los botones y puertas deben coincidir (Boton1 -> Puerta1, etc.)
+
+REQUISITOS:
+✅ Windows 7/8/10/11 (64 bits)
+✅ Zero instalación - solo ejecutar CreadorNiveles.exe
+
+DESARROLLADO CON:
+- Raylib 4.5.0
+- C++17
+- Compilado estáticamente
+
+¡Feliz creación de niveles!

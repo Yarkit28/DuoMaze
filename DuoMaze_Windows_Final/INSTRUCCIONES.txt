@@ -1,0 +1,46 @@
+DUO MAZE - INSTRUCCIONES (SISTEMA DE NIVELES)
+=============================================
+
+CONTROLES:
+- Personaje ROJO (Master): W-A-S-D
+- Personaje AZUL (Slave): Flechas direccionales
+- Audio: P (pausar), M (mutear), U (subir volumen), V (controles audio)
+- Niveles: ENTER (avanzar al siguiente nivel)
+
+OBJETIVO:
+Llevar a ambos personajes a la meta cooperando en cada nivel.
+
+SISTEMA DE NIVELES MEJORADO:
+- 2 niveles completos con mecánicas únicas
+- Botones cooperativos (individuales y conjuntos)
+- Obstáculos específicos por jugador
+- Puertas que requieren cooperación
+- Transición automática entre niveles
+
+NUEVAS MECÁNICAS:
+- Botón 3: Requiere que AMBOS jugadores estén encima
+- Obstáculos rojos: Solo el jugador ROJO puede pasar
+- Obstáculos azules: Solo el jugador AZUL puede pasar
+- Puertas moradas: Requieren botón cooperativo
+
+REQUISITOS:
+✅ Zero instalación - solo ejecutar DuoMaze.exe
+✅ Windows 7/8/10/11 (64 bits)
+
+ESTRUCTURA ACTUALIZADA:
+├── DuoMaze.exe
+└── resources/
+    ├── fonts/          # Fuentes del juego (Arrows.ttf)
+    ├── sprites/        # Gráficos y texturas (ESENCIAL)
+    ├── backgrounds/    # Fondos de pantalla
+    └── sound/
+        ├── music/      # Música de fondo
+        └── sfx/        # Efectos de sonido
+
+DESARROLLADO CON:
+- Raylib 4.5.0
+- Sistema multihilo concurrente
+- Sistema de niveles progresivo
+- Compilado estáticamente
+
+¡Disfruta el juego cooperativo!
