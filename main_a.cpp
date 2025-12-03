@@ -92,24 +92,41 @@ public:
 static Logger logger;
 
 // Sistema de audio optimizado CON HILO DEDICADO
+// SISTEMA DE AUDIO MEJORADO CON MÚSICAS DIFERENTES POR PANTALLA
 class AudioSystem {
 private:
-    Music music;
+    Music menuMusic;
+    Music gameplayMusic;
     std::atomic<bool> audioRunning{true};
     std::atomic<bool> musicPaused{false};
     std::atomic<float> volume{0.7f};
+    std::atomic<bool> isMenuMusic{true};  // true = menú, false = gameplay
     std::thread musicThread;
     
 public:
-    bool cargarMusica() {
+    bool cargarMusicas() {
         if (!IsAudioDeviceReady()) {
             InitAudioDevice();
         }
         
-        music = LoadMusicStream("resources/sound/music/Maze_Quest.ogg");
-        if (music.frameCount == 0) {
+        // Cargar música del menú (NUEVA)
+        menuMusic = LoadMusicStream("resources/sound/music/Maze_Quest_Echoes.ogg");
+        if (menuMusic.frameCount == 0) {
+            logger.write("❌ Error: No se pudo cargar Maze_Quest_Echoes.ogg (música de menú)");
             return false;
         }
+        
+        // Cargar música de gameplay (ORIGINAL)
+        gameplayMusic = LoadMusicStream("resources/sound/music/Maze_Quest.ogg");
+        if (gameplayMusic.frameCount == 0) {
+            logger.write("❌ Error: No se pudo cargar Maze_Quest.ogg (música de gameplay)");
+            UnloadMusicStream(menuMusic);
+            return false;
+        }
+        
+        logger.write("✅ Ambas músicas cargadas correctamente");
+        logger.write("   - Menú: Maze_Quest_Echoes.ogg");
+        logger.write("   - Gameplay: Maze_Quest.ogg");
         
         // Iniciar hilo de música
         audioRunning = true;
@@ -119,44 +136,77 @@ public:
     }
     
     void musicThreadFunction() {
-        logger.write("🎵 MusicThread started");
+        logger.write("🎵 MusicThread started - Reproduciendo música de menú");
         
-        SetMusicVolume(music, volume.load());
-        PlayMusicStream(music);
+        Music* currentMusic = &menuMusic;  // Empezar con música del menú
+        SetMusicVolume(*currentMusic, volume.load());
+        PlayMusicStream(*currentMusic);
         
         while (audioRunning.load()) {
             if (!musicPaused.load()) {
-                UpdateMusicStream(music);
+                UpdateMusicStream(*currentMusic);
+                
+                // Cambiar música si es necesario
+                if (isMenuMusic.load()) {
+                    if (currentMusic != &menuMusic) {
+                        logger.write("🎵 Cambiando a música de menú");
+                        StopMusicStream(*currentMusic);
+                        currentMusic = &menuMusic;
+                        PlayMusicStream(*currentMusic);
+                        SetMusicVolume(*currentMusic, volume.load());
+                    }
+                } else {
+                    if (currentMusic != &gameplayMusic) {
+                        logger.write("🎵 Cambiando a música de gameplay");
+                        StopMusicStream(*currentMusic);
+                        currentMusic = &gameplayMusic;
+                        PlayMusicStream(*currentMusic);
+                        SetMusicVolume(*currentMusic, volume.load());
+                    }
+                }
                 
                 // Reiniciar música si llegó al final
-                if (GetMusicTimePlayed(music) >= GetMusicTimeLength(music)) {
-                    StopMusicStream(music);
-                    PlayMusicStream(music);
+                if (GetMusicTimePlayed(*currentMusic) >= GetMusicTimeLength(*currentMusic)) {
+                    StopMusicStream(*currentMusic);
+                    PlayMusicStream(*currentMusic);
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(GameConstants::AUDIO_UPDATE_RATE));
         }
         
-        StopMusicStream(music);
+        StopMusicStream(*currentMusic);
         logger.write("🎵 MusicThread finished");
+    }
+    
+    void cambiarAMusicaMenu() {
+        isMenuMusic = true;
+    }
+    
+    void cambiarAMusicaGameplay() {
+        isMenuMusic = false;
     }
     
     void togglePausa() {
         musicPaused = !musicPaused;
-        if (music.frameCount == 0) return;
-        
-        if (musicPaused) {
-            PauseMusicStream(music);
+        if (isMenuMusic) {
+            if (musicPaused) {
+                PauseMusicStream(menuMusic);
+            } else {
+                ResumeMusicStream(menuMusic);
+            }
         } else {
-            ResumeMusicStream(music);
+            if (musicPaused) {
+                PauseMusicStream(gameplayMusic);
+            } else {
+                ResumeMusicStream(gameplayMusic);
+            }
         }
     }
     
     void setVolume(float newVolume) {
         volume.store(newVolume);
-        if (music.frameCount > 0) {
-            SetMusicVolume(music, newVolume);
-        }
+        SetMusicVolume(menuMusic, newVolume);
+        SetMusicVolume(gameplayMusic, newVolume);
     }
     
     float getVolume() const { return volume.load(); }
@@ -167,14 +217,18 @@ public:
         if (musicThread.joinable()) {
             musicThread.join();
         }
-        if (music.frameCount > 0) {
-            UnloadMusicStream(music);
+        if (menuMusic.frameCount > 0) {
+            UnloadMusicStream(menuMusic);
+        }
+        if (gameplayMusic.frameCount > 0) {
+            UnloadMusicStream(gameplayMusic);
         }
         if (IsAudioDeviceReady()) {
             CloseAudioDevice();
         }
     }
 };
+
 
 // Estado del juego optimizado - CON SISTEMA DE NIVELES
 struct GameState {
@@ -1026,7 +1080,7 @@ int main() {
     bool shouldClose = false;
     
     textureManager.loadAllTextures();
-    audio.cargarMusica();
+    audio.cargarMusicas();
 
     const std::vector<int> masterKeys = {KEY_A, KEY_D, KEY_W, KEY_S};
     const std::vector<int> slaveKeys = {KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN};
@@ -1069,6 +1123,7 @@ int main() {
                     validatorThread = std::thread(validationThread, std::ref(gameState));
                     
                     currentScreen = GAMEPLAY;
+                    audio.cambiarAMusicaGameplay();
                     logger.write("Juego iniciado - Nivel 0");
                 }
                 
@@ -1102,6 +1157,7 @@ int main() {
             slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
             validatorThread = std::thread(validationThread, std::ref(gameState));
             
+            audio.cambiarAMusicaGameplay(); 
             logger.write("Avanzando al nivel " + std::to_string(nextLevel));
                     } else {
                         // Volver al menú (reinicio tipo Super Mario)
@@ -1112,6 +1168,7 @@ int main() {
                         if (validatorThread.joinable()) validatorThread.join();
                         
                         currentScreen = MENU;
+                        audio.cambiarAMusicaMenu();
                         logger.write("Todos los niveles completados - Volviendo al menú");
                     }
                 }
