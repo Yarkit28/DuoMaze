@@ -318,6 +318,8 @@ public:
                                                GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
         loadFont("resources/fonts/Arrows.ttf", 20, 250);
         loadFont("resources/fonts/upheavtt.ttf", 20, 250);
+        loadFont("resources/fonts/upheavtt.ttf", 60, 250);
+        loadFont("resources/fonts/upheavtt.ttf", 30, 250);
         
         texturesLoaded = true;
         logger.write("🎨 Texturas cargadas correctamente");
@@ -350,11 +352,11 @@ public:
             case PARED:
                 return false;
             case PUERTA_1:
-                return state.button1Active;
+                return state.button1Active.load();
             case PUERTA_2:
-                return state.button2Active;
+                return state.button2Active.load();
             case PUERTA_3:
-                return state.button3Active;
+                return state.button3Active.load();
             case OBSTACULO_ROJO:
                 return isMaster;
             case OBSTACULO_AZUL:
@@ -601,19 +603,19 @@ private:
                 break;
                 
             case BOTON_1:
-                drawTexture("boton1", destRect, state.button1Active ? GREEN : WHITE);
+                drawTexture("boton1", destRect, state.button1Active.load() ? GREEN : WHITE);
                 break;
                 
             case BOTON_2:
-                drawTexture("boton2", destRect, state.button2Active ? GREEN : WHITE);
+                drawTexture("boton2", destRect, state.button2Active.load() ? GREEN : WHITE);
                 break;
                 
             case BOTON_3:
-                drawTexture("boton3", destRect, state.button3Active ? GREEN : WHITE);
+                drawTexture("boton3", destRect, state.button3Active.load() ? GREEN : WHITE);
                 break;
                 
             case PUERTA_1:
-                if (state.button1Active) {
+                if (state.button1Active.load()) {
                     drawTexture("puerta1Abierta", destRect, WHITE);
                 } else {
                     drawTexture("puerta1Cerrada", destRect, WHITE);
@@ -621,7 +623,7 @@ private:
                 break;
                 
             case PUERTA_2:
-                if (state.button2Active) {
+                if (state.button2Active.load()) {
                     drawTexture("puerta2Abierta", destRect, WHITE);
                 } else {
                     drawTexture("puerta2Cerrada", destRect, WHITE);
@@ -629,7 +631,7 @@ private:
                 break;
             
             case PUERTA_3:
-                if (state.button3Active) {
+                if (state.button3Active.load()) {
                     drawTexture("puerta3Abierta", destRect, WHITE);
                 } else {
                     drawTexture("puerta3Cerrada", destRect, WHITE);
@@ -662,6 +664,41 @@ private:
     Rectangle playButton;
     Rectangle exitButton;
     TextureManager& textureManager;
+    void drawTextWithOutline(Font font, const char* text, Vector2 position, 
+                           float fontSize, float spacing, Color textColor) {
+        // Efecto de contorno
+        std::vector<Vector2> outlineOffsets = {
+            {-3, 0}, {3, 0}, {0, -3}, {0, 3},
+            {-3, -3}, {3, -3}, {-3, 3}, {3, 3}
+        };
+        
+        for (const auto& offset : outlineOffsets) {
+            DrawTextEx(font, text, 
+                       Vector2{position.x + offset.x, position.y + offset.y}, 
+                       fontSize, spacing, BLACK);
+        }
+        
+        // Texto principal
+        DrawTextEx(font, text, position, fontSize, spacing, textColor);
+    }
+    
+    void drawButtonText(Font font, const char* text, Rectangle button, Color textColor) {
+        if (font.texture.id != 0) {
+            // Usar MeasureTextEx para centrar correctamente
+            Vector2 textSize = MeasureTextEx(font, text, 30, 2);
+            Vector2 textPosition = {
+                button.x + (button.width - textSize.x) / 2,
+                button.y + (button.height - textSize.y) / 2
+            };
+            
+            drawTextWithOutline(font, text, textPosition, 30, 2, textColor);
+        } else {
+            // Fallback a la función original
+            DrawText(text, 
+                     button.x + button.width/2 - MeasureText(text, 30)/2,
+                     button.y + button.height/2 - 15, 30, textColor);
+        }
+    }
     
 public:
     MenuSystem(TextureManager& tm) : textureManager(tm) {
@@ -683,28 +720,60 @@ public:
         }
         
         Font titleFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 60);
-        if (titleFont.texture.id != 0 && titleFont.texture.id != GetFontDefault().texture.id) {
-        // Usar la nueva fuente upheavtt
-        DrawTextEx(titleFont, "DuoMaze", 
-                   Vector2{GameConstants::SCREEN_WIDTH/2 - MeasureTextEx(titleFont, "DuoMaze", 60, 2).x/2, 
-                           GameConstants::SCREEN_HEIGHT/4}, 
-                   60, 2, DARKBLUE);
-        } else {
-          // Fallback a la fuente por defecto si upheavtt no se pudo cargar
-          DrawText("DuoMaze", 
-                   GameConstants::SCREEN_WIDTH/2 - MeasureText("DuoMaze", 60)/2, 
-                   GameConstants::SCREEN_HEIGHT/4, 60, DARKBLUE);
-        }
-        /*DrawText("DuoMaze", 
-                 GameConstants::SCREEN_WIDTH/2 - MeasureText("DuoMaze", 60)/2, 
-                 GameConstants::SCREEN_HEIGHT/4, 60, DARKBLUE);*/
+        Font regularFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 20);
+        Font buttonFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 30);
         
+        if (titleFont.texture.id != 0) {
+            const char* duoText = "DUO";
+            const char* mazeText = "MAZE";
+            float titleSize = 60;
+            float spacing = 2;
+            
+            // Medir ambas partes
+            Vector2 duoSize = MeasureTextEx(titleFont, duoText, titleSize, spacing);
+            Vector2 mazeSize = MeasureTextEx(titleFont, mazeText, titleSize, spacing);
+            
+            // Posición central
+            float totalWidth = duoSize.x + mazeSize.x;
+            Vector2 basePos = Vector2{
+                GameConstants::SCREEN_WIDTH/2 - totalWidth/2, 
+                GameConstants::SCREEN_HEIGHT/4
+            };
+            
+            // Dibujar cada parte
+            drawTextWithOutline(titleFont, duoText, basePos, titleSize, spacing, BLUE);
+            
+            Vector2 mazePos = Vector2{basePos.x + duoSize.x, basePos.y};
+            drawTextWithOutline(titleFont, mazeText, mazePos, titleSize, spacing, RED);
+        
+    } else {
+        // Fallback
+        DrawText("DuoMaze", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("DuoMaze", 60)/2, 
+                 GameConstants::SCREEN_HEIGHT/4, 60, DARKBLUE);
+    }
+        
+        
+        /*DrawText("Cooperación en el Laberinto", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Cooperación en el Laberinto", 20)/2, 
+                 GameConstants::SCREEN_HEIGHT/3 + 20, 20, DARKGRAY);*/
+        if (regularFont.texture.id != 0) {
+        const char* subtitle = "Cooperación en el Laberinto";
+        Vector2 subtitleSize = MeasureTextEx(regularFont, subtitle, 20, 1);
+        Vector2 subtitlePos = Vector2{
+            GameConstants::SCREEN_WIDTH/2 - subtitleSize.x/2,
+            GameConstants::SCREEN_HEIGHT/3 + 20
+        };
+        drawTextWithOutline(regularFont, subtitle, subtitlePos, 20, 1, GRAY);
+    } else {
         DrawText("Cooperación en el Laberinto", 
                  GameConstants::SCREEN_WIDTH/2 - MeasureText("Cooperación en el Laberinto", 20)/2, 
-                 GameConstants::SCREEN_HEIGHT/3 + 20, 20, DARKGRAY);
+                 GameConstants::SCREEN_HEIGHT/3 + 20, 20, GRAY);
+    }
         
         Vector2 mousePoint = GetMousePosition();
-        DrawRectangleRec(playButton, 
+        
+        /*DrawRectangleRec(playButton, 
             CheckCollisionPointRec(mousePoint, playButton) ? BLUE : SKYBLUE);
         DrawRectangleLinesEx(playButton, 2, DARKBLUE);
         DrawText("JUGAR", 
@@ -716,11 +785,39 @@ public:
         DrawRectangleLinesEx(exitButton, 2, MAROON);
         DrawText("SALIR", 
                  exitButton.x + exitButton.width/2 - MeasureText("SALIR", 30)/2,
-                 exitButton.y + exitButton.height/2 - 15, 30, WHITE);
+                 exitButton.y + exitButton.height/2 - 15, 30, WHITE);*/
+        // Botón JUGAR
+        DrawRectangleRec(playButton, 
+            CheckCollisionPointRec(mousePoint, playButton) ? BLUE : SKYBLUE);
+        DrawRectangleLinesEx(playButton, 2, DARKBLUE);
         
+        // Usar la nueva función para dibujar el texto del botón
+        drawButtonText(buttonFont, "JUGAR", playButton, WHITE);
+        
+        // Botón SALIR
+        DrawRectangleRec(exitButton, 
+            CheckCollisionPointRec(mousePoint, exitButton) ? RED : PINK);
+        DrawRectangleLinesEx(exitButton, 2, MAROON);
+        
+        // Usar la nueva función para dibujar el texto del botón
+        drawButtonText(buttonFont, "SALIR", exitButton, WHITE);
+        
+        /*DrawText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 
+                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 16)/2,
+                 GameConstants::SCREEN_HEIGHT - 50, 16, GRAY);*/
+        if (regularFont.texture.id != 0) {
+        const char* audioText = "Usa P: Pausar música, M: Mutear, U: Subir volumen";
+        Vector2 textSize = MeasureTextEx(regularFont, audioText, 16, 1);
+        Vector2 textPos = Vector2{
+            GameConstants::SCREEN_WIDTH/2 - textSize.x/2,
+            GameConstants::SCREEN_HEIGHT - 50
+        };
+        drawTextWithOutline(regularFont, audioText, textPos, 16, 1, DARKGRAY);
+    } else {
         DrawText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 
                  GameConstants::SCREEN_WIDTH/2 - MeasureText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 16)/2,
-                 GameConstants::SCREEN_HEIGHT - 50, 16, DARKGRAY);
+                 GameConstants::SCREEN_HEIGHT - 50, 16, GRAY);
+    }
     }
     
     bool isPlayButtonPressed() {
@@ -939,9 +1036,26 @@ int main() {
                     int nextLevel = gameState.currentLevel + 1;
                     
                     if (nextLevel < GameConstants::TOTAL_LEVELS) {
+                    // Detener hilos antes de seguir
+                        gameState.gameRunning = false;
+            
+                    if (masterThread.joinable()) masterThread.join();
+                    if (slaveThread.joinable()) slaveThread.join();
+                    if (validatorThread.joinable()) validatorThread.join();
+                        
                         // Cargar siguiente nivel
                         LevelSystem::initializeLevel(gameState, nextLevel);
                         logger.write("Avanzando al nivel " + std::to_string(nextLevel));
+                        
+                        // Reiniciar flag para nuevos hilos
+            gameState.gameRunning = true;
+            
+                        // Crear NUEVOS hilos para el nuevo nivel
+            masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
+            slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
+            validatorThread = std::thread(validationThread, std::ref(gameState));
+            
+            logger.write("Avanzando al nivel " + std::to_string(nextLevel));
                     } else {
                         // Volver al menú (reinicio tipo Super Mario)
                         gameState.gameRunning = false;
