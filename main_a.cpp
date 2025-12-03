@@ -43,7 +43,7 @@ namespace GameConstants {
     constexpr int AUDIO_UPDATE_RATE = 10;
     
     // NUEVO: Sistema de niveles
-    constexpr int TOTAL_LEVELS = 2;
+    constexpr int TOTAL_LEVELS = 4;
 }
 
 // Enumeraciones
@@ -851,6 +851,8 @@ public:
         switch(level) {
             case 0: initializeLevel0(state); break;
             case 1: initializeLevel1(state); break;
+            case 2: initializeLevel2(state); break;  // NUEVO: Nivel 2
+            case 3: initializeLevel3(state); break;  // NUEVO: Nivel 3
             default: initializeLevel0(state); break;
         }
         
@@ -878,7 +880,7 @@ private:
             }
         }
     }
-    
+    //Nivel 1
     static void initializeLevel0(GameState& state) {
         constexpr int nivel0[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
             {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -901,8 +903,31 @@ private:
         loadLevelData(state, nivel0);
     }
     
+    //Nivel 2
     static void initializeLevel1(GameState& state) {
-        constexpr int nivel1[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
+    constexpr int nivel1[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1},
+        {1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1},
+        {1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 11, 1},
+        {1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 5, 1, 0, 1, 0, 1},
+        {1, 1, 0, 0, 1, 1, 1, 0, 1, 6, 1, 0, 0, 0, 0, 10, 0, 1, 0, 1},
+        {1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1},
+        {1, 0, 1, 0, 1, 1, 1, 7, 8, 0, 1, 1, 0, 11, 0, 0, 0, 0, 0, 1},
+        {1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1},
+        {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 9, 1, 1, 1, 0, 1},
+        {1, 10, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 11, 0, 0, 0, 1, 1, 1, 12, 1, 1, 1, 0, 1},
+        {1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+        {1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    };
+    
+    loadLevelData(state, nivel1);
+}
+    // Nivel 3
+    static void initializeLevel2(GameState& state) {
+        constexpr int nivel2[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
             {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
             {1, 0, 0, 0, 11, 0, 0, 0, 0, 0, 6, 1, 0, 0, 0, 0, 4, 7, 0, 1},
             {1, 0, 1, 0, 1, 8, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1},
@@ -910,18 +935,41 @@ private:
             {1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
             {1, 0, 0, 0, 10, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
             {1, 1, 0, 1, 1, 1, 0, 0, 1, 1, 9, 1, 1, 1, 1, 1, 1, 1, 0, 1},
-            {1, 0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 1},
+            {1, 0, 5, 0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 0, 0, 1},
             {1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 9, 1, 1, 1, 1, 1, 1, 1, 0, 1},
             {1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1},
             {1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1},
             {1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 12, 0, 0, 1, 0, 1},
             {1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
-            {1, 2, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1},
+            {1, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1},
             {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
         };
         
-        loadLevelData(state, nivel1);
+        loadLevelData(state, nivel2);
     }
+    
+    //Nivel 4
+    static void initializeLevel3(GameState& state) {
+    constexpr int nivel3[GameConstants::MAP_HEIGHT][GameConstants::MAP_WIDTH] = {
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 0, 4, 1, 6, 0, 0, 8, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1},
+        {1, 10, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 11, 0, 1, 0, 1, 0, 1},
+        {1, 0, 0, 11, 0, 10, 0, 1, 0, 1, 0, 1, 0, 1, 0, 10, 0, 1, 0, 1},
+        {1, 11, 10, 1, 0, 1, 0, 1, 0, 1, 0, 10, 0, 1, 0, 1, 0, 1, 0, 1},
+        {1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
+        {1, 10, 11, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
+        {1, 0, 0, 1, 0, 11, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
+        {1, 11, 10, 1, 10, 1, 1, 0, 0, 10, 0, 11, 0, 1, 0, 1, 0, 1, 0, 1},
+        {1, 0, 0, 0, 0, 11, 5, 1, 0, 7, 0, 1, 0, 10, 0, 11, 0, 1, 0, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1},
+        {1, 0, 9, 3, 0, 10, 0, 11, 0, 1, 0, 11, 0, 1, 0, 11, 0, 1, 0, 1},
+        {1, 12, 1, 0, 0, 11, 0, 1, 0, 10, 0, 1, 0, 10, 0, 1, 0, 10, 0, 1},
+        {1, 0, 9, 2, 0, 1, 0, 10, 0, 11, 0, 10, 0, 11, 0, 10, 0, 11, 0, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    };
+    
+    loadLevelData(state, nivel3);
+}
 };
 
 // Controlador de audio en pantalla
@@ -1033,7 +1081,7 @@ int main() {
             case GAMEPLAY: {
                 // NUEVO: Lógica de transición entre niveles
                 if (gameState.levelCompleted && IsKeyPressed(KEY_ENTER)) {
-                    int nextLevel = gameState.currentLevel + 1;
+                    int nextLevel = gameState.currentLevel.load() + 1;
                     
                     if (nextLevel < GameConstants::TOTAL_LEVELS) {
                     // Detener hilos antes de seguir
@@ -1045,7 +1093,6 @@ int main() {
                         
                         // Cargar siguiente nivel
                         LevelSystem::initializeLevel(gameState, nextLevel);
-                        logger.write("Avanzando al nivel " + std::to_string(nextLevel));
                         
                         // Reiniciar flag para nuevos hilos
             gameState.gameRunning = true;
