@@ -1,3 +1,52 @@
+# Ejecutables y binarios
 DuoMaze
-DuoMaze
-DuoMaze
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+
+# Archivos objeto
+*.o
+*.obj
+
+# Archivos de depuración
+debug_log.txt
+*.log
+
+# Directorios de build
+build/
+bin/
+dist/
+Debug/
+Release/
+*.xcodeproj/
+*.xcworkspace/
+
+# Dependencias y librerías
+lib/
+vendor/
+*.a
+*.lib
+
+# Archivos de IDE/Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Assets comprimidos/intermedios (si tienes fuente)
+*.psd
+*.blend
+*.fbx
+*.tga
+
+# Configuraciones locales
+config.ini
+settings.local.json

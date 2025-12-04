@@ -371,9 +371,19 @@ public:
         textures["meta"] = loadAndRescaleTexture("resources/sprites/meta.png", 
                                                GameConstants::TILE_SIZE, GameConstants::TILE_SIZE);
         loadFont("resources/fonts/Arrows.ttf", 20, 250);
+        loadFont("resources/fonts/Arrows.ttf", 24, 250);
         loadFont("resources/fonts/upheavtt.ttf", 20, 250);
         loadFont("resources/fonts/upheavtt.ttf", 60, 250);
         loadFont("resources/fonts/upheavtt.ttf", 30, 250);
+        // Para controles - estilo inversión/tecnológico
+        loadFont("resources/fonts/Inversionz.ttf", 22, 250);      // Tamaño para controles
+        loadFont("resources/fonts/Inversionz.ttf", 18, 250);      // Tamaño más pequeño
+        loadFont("resources/fonts/Inversionz.ttf", 16, 250);      // Para texto pequeño
+    
+        // Para nivel - estilo espacial/futurista
+        loadFont("resources/fonts/spaceranger.ttf", 28, 250);     // Tamaño principal nivel
+        loadFont("resources/fonts/spaceranger.ttf", 32, 250);     // Tamaño más grande
+        loadFont("resources/fonts/spaceranger.ttf", 24, 250);     // Tamaño alternativo
         
         texturesLoaded = true;
         logger.write("🎨 Texturas cargadas correctamente");
@@ -590,7 +600,96 @@ private:
     TextureManager& textureManager;
     
 public:
+
     RenderSystem(TextureManager& tm) : textureManager(tm) {}
+    
+    // MÉTODO 1: Para arrows.ttf CON CONTORNO
+    void drawArrowsText(const std::string& text, Vector2 position, float fontSize, 
+                       Color textColor, Color outlineColor = BLACK) {
+        
+        Font font = textureManager.getFont("resources/fonts/Arrows.ttf", 
+                                          static_cast<int>(fontSize));
+        
+        if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) {
+            // Contorno de 8 direcciones
+            std::vector<Vector2> outlineOffsets = {
+              {-1, 0}, {1, 0}, {0, -1}, {0, 1},  // Solo 4 direcciones, no diagonales
+              // {-1, -1}, {1, -1}, {-1, 1}, {1, 1}  // Comentadas para hacerlo más sutil
+            };
+            
+            // Dibujar contorno
+            for (const auto& offset : outlineOffsets) {
+                DrawTextEx(font, text.c_str(), 
+                          Vector2{position.x + offset.x, position.y + offset.y}, 
+                          fontSize, 1, outlineColor);
+            }
+            
+            // Dibujar texto principal
+            DrawTextEx(font, text.c_str(), position, fontSize, 1, textColor);
+            
+        } else {
+            // Fallback: texto normal con contorno simple
+            DrawText(text.c_str(), (int)position.x + 1, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x - 1, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y + 1, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y - 1, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, textColor);
+        }
+    }
+    
+    // MÉTODO 2: Para inversionz.ttf SIN CONTORNO
+    void drawInversionzText(const std::string& text, Vector2 position, float fontSize, 
+                           Color textColor) {
+        
+        Font font = textureManager.getFont("resources/fonts/Inversionz.ttf", 
+                                          static_cast<int>(fontSize));
+        
+        if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) {
+            DrawTextEx(font, text.c_str(), position, fontSize, 1, textColor);
+        } else {
+            DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, textColor);
+        }
+    }
+    
+    // MÉTODO 3: Para spaceranger.ttf CON CONTORNO (más grueso)
+    void drawSpacerangerText(const std::string& text, Vector2 position, float fontSize, 
+                            Color textColor, Color outlineColor = BLACK) {
+        
+        Font font = textureManager.getFont("resources/fonts/spaceranger.ttf", 
+                                          static_cast<int>(fontSize));
+        
+        if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) {
+            // Contorno más grueso (12 direcciones)
+            std::vector<Vector2> outlineOffsets = {
+                {-3, 0}, {3, 0}, {0, -3}, {0, 3},
+                {-3, -3}, {3, -3}, {-3, 3}, {3, 3},
+                {-2, 0}, {2, 0}, {0, -2}, {0, 2}
+            };
+            
+            // Dibujar contorno
+            for (const auto& offset : outlineOffsets) {
+                DrawTextEx(font, text.c_str(), 
+                          Vector2{position.x + offset.x, position.y + offset.y}, 
+                          fontSize, 1, outlineColor);
+            }
+            
+            // Dibujar texto principal
+            DrawTextEx(font, text.c_str(), position, fontSize, 1, textColor);
+            
+        } else {
+            // Fallback
+            DrawText(text.c_str(), (int)position.x + 2, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x - 2, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y + 2, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y - 2, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, textColor);
+        }
+    }
+    
+    
+    
+    
+    /*
     bool drawTextWithFont(const std::string& fontName, const std::string& text, 
                          Vector2 position, float fontSize, Color color) {
         Font customFont = textureManager.getFont(fontName, static_cast<int>(fontSize));
@@ -602,7 +701,7 @@ public:
             DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, color);
             return false;
         }
-    }
+    }*/
     void drawLaberinto(const GameState& state) {
         for (int y = 0; y < GameConstants::MAP_HEIGHT; y++) {
             for (int x = 0; x < GameConstants::MAP_WIDTH; x++) {
@@ -860,7 +959,7 @@ public:
                  GameConstants::SCREEN_WIDTH/2 - MeasureText("Usa P: Pausar música, M: Mutear, U: Subir volumen", 16)/2,
                  GameConstants::SCREEN_HEIGHT - 50, 16, GRAY);*/
         if (regularFont.texture.id != 0) {
-        const char* audioText = "Usa P: Pausar música, M: Mutear, U: Subir volumen";
+        const char* audioText = "Usa P: Pausar música, M: Mutear, U: Subir volumen, H: Alto/Bajo";
         Vector2 textSize = MeasureTextEx(regularFont, audioText, 16, 1);
         Vector2 textPos = Vector2{
             GameConstants::SCREEN_WIDTH/2 - textSize.x/2,
@@ -1047,7 +1146,9 @@ public:
         DrawText("P: Pausar/Reanudar musica", 20, GameConstants::SCREEN_HEIGHT - 90, 14, WHITE);
         DrawText("M: Mutear", 20, GameConstants::SCREEN_HEIGHT - 70, 14, WHITE);
         DrawText("U: Subir volumen", 20, GameConstants::SCREEN_HEIGHT - 50, 14, WHITE);
-        DrawText("V: Mostrar/ocultar controles", 20, GameConstants::SCREEN_HEIGHT - 30, 14, WHITE);
+        DrawText("H: Alto/Bajo volumen", 20, GameConstants::SCREEN_HEIGHT - 30, 14, WHITE);
+        DrawText("V: Mostrar/ocultar controles", 20, GameConstants::SCREEN_HEIGHT - 10, 14, WHITE);
+        
     }
     
     void showTemporarily(double seconds = 3.0) {
@@ -1103,6 +1204,14 @@ int main() {
         if (IsKeyPressed(KEY_U)) {
             audio.setVolume(0.7f);
             audioOverlay.showTemporarily();
+        }
+        if (IsKeyPressed(KEY_H)) {
+          if (audio.getVolume() > 0.35f) { // Si está en volumen alto
+              audio.setVolume(0.15f);      // Cambia a bajo
+          } else {
+            audio.setVolume(0.7f);       // Cambia a alto
+          }
+          audioOverlay.showTemporarily();
         }
         
         if (IsKeyPressed(KEY_V)) {
@@ -1187,24 +1296,30 @@ int main() {
                 renderSystem.drawLaberinto(gameState);
                 renderSystem.drawPlayers(gameState);
                 
-                // UI del juego
-                DrawText("Master (Rojo): WASD", 10, 10, 20, RED);
+                // Fondo para mejor legibilidad
+                DrawRectangle(0, 0, GameConstants::SCREEN_WIDTH, 40, Fade(BLACK, 0.4f));
+                
+                
+                // 1. CONTROLES - Usando inversionz.ttf (SIN contorno)
+                renderSystem.drawInversionzText("master: wasd", Vector2{10, 10}, 22, RED);
     
-                // Esquina superior derecha - Slave  
-                DrawText("Slave (Azul): ", GameConstants::SCREEN_WIDTH - 250, 10, 20, BLUE);
-                
-                bool fuenteCargada = renderSystem.drawTextWithFont("resources/fonts/Arrows.ttf", "CBDA", 
-                  Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 20, BLUE);
-
-                // Si la fuente NO se cargó, mostrar "Flechas direccionales" en lugar de "CBDA"
-                if (!fuenteCargada) {
-                  // Dibujar "Flechas direccionales" en la posición donde iría "CBDA"
-                  DrawRectangle(GameConstants::SCREEN_WIDTH - 110, 5, 60, 25, SKYBLUE);
-                  DrawText("Flechas direccionales", GameConstants::SCREEN_WIDTH - 250, 30, 20, BLUE);
-                } 
-                
-                DrawText(TextFormat("NIVEL %d", gameState.currentLevel.load() + 1), 
-                         10, 30, 20, GOLD);
+                // 2. NIVEL - Usando spaceranger.ttf (CON contorno)
+                std::string levelText = TextFormat("NIVEL %d", gameState.currentLevel.load() + 1);
+                float levelTextWidth = MeasureText(levelText.c_str(), 28); // Estimación
+                renderSystem.drawSpacerangerText(levelText, 
+                  Vector2{GameConstants::SCREEN_WIDTH/2 - levelTextWidth/2, 5}, 
+                    28, GOLD);
+    
+    // 3. SLAVE - Usando inversionz.ttf (SIN contorno) + arrows.ttf (CON contorno)
+    renderSystem.drawInversionzText("slave:", 
+        Vector2{(float)GameConstants::SCREEN_WIDTH - 260, 10}, 22, BLUE);
+    
+                // Flechas CON CONTORNO usando arrows.ttf
+    renderSystem.drawArrowsText("cbda", 
+        Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 24, BLUE);
+        
+        
+        
                 /*
                 DrawText(TextFormat("Botón 1 (Rojo): %s", gameState.button1Active ? "ACTIVADO" : "INACTIVO"), 
                          10, 40, 18, gameState.button1Active ? GREEN : RED);
