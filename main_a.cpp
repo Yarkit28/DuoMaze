@@ -16,6 +16,7 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <cmath>
 
 // Configuración multiplataforma
 #ifdef _WIN32
@@ -229,6 +230,166 @@ public:
     }
 };
 
+//Sistemas de confeti
+// ----------------------------------------------------------------------------
+// Sistema de Partículas de Confeti - BASE CLASS
+// ----------------------------------------------------------------------------
+
+struct ConfettiParticle {
+    Vector2 position;
+    Vector2 velocity;
+    Color color;
+    float rotation;
+    float angularVelocity;
+    float lifetime; // Tiempo de vida restante en segundos
+    float totalLifetime;
+    float size;
+};
+
+class ConfettiSystem {
+private:
+    static constexpr float DURATION = 5.0f; // Duración del efecto en segundos
+    static constexpr int MAX_PARTICLES = 150;
+
+protected:
+    std::vector<ConfettiParticle> particles;
+    std::vector<ConfettiParticle>& getParticles() { return particles; }
+    const std::vector<ConfettiParticle>& getParticles() const { return particles; }
+    bool isActive = false;
+    double startTime = 0.0;
+    
+    Color getRandomColor() {
+        // Colores típicos de confeti (Rojo, Azul, Verde, Amarillo, Morado)
+        std::array<Color, 5> colors = {RED, BLUE, LIME, GOLD, VIOLET};
+        return colors[GetRandomValue(0, static_cast<int>(colors.size()) - 1)];
+    }
+
+    void createParticle(Vector2 center) {
+        ConfettiParticle p;
+        p.position = {center.x, center.y - 100.0f}; 
+        
+        // Ángulo aleatorio entre 90 (arriba) +/- 60 grados (rango entre 30 y 150)
+        float angle = static_cast<float>(GetRandomValue(60, 150)) * DEG2RAD; 
+        float speed = static_cast<float>(GetRandomValue(250, 400)) / 100.0f; // Velocidad entre 1.5 y 3.0
+        
+        p.velocity.x = speed * cosf(angle);
+        p.velocity.y = -speed * sinf(angle);
+        
+        p.color = getRandomColor();
+        p.rotation = static_cast<float>(GetRandomValue(0, 360));
+        p.angularVelocity = static_cast<float>(GetRandomValue(-200, 200));
+        p.totalLifetime = p.lifetime = static_cast<float>(GetRandomValue(300, 500)) / 100.0f; // Vida entre 1.0 y 2.0s
+        p.size = static_cast<float>(GetRandomValue(5, 10));
+
+        particles.push_back(p);
+    }
+
+public:
+    virtual ~ConfettiSystem() = default;
+    
+    void startEffect(Vector2 center, int count = MAX_PARTICLES) {
+        particles.clear();
+        for (int i = 0; i < count; ++i) {
+            createParticle(center);
+        }
+        isActive = true;
+        startTime = GetTime();
+        logger.write("🎉 Confetti effect started!");
+    }
+
+    virtual void update(float dt) {
+        if (!isActive) return;
+
+        // Limitar la duración del efecto
+        if (GetTime() - startTime > DURATION) {
+            // El efecto visual principal termina, pero permitimos que las partículas sigan cayendo
+            // hasta que su lifetime termine.
+        }
+
+        for (auto it = particles.begin(); it != particles.end(); ) {
+            it->lifetime -= dt;
+
+            if (it->lifetime <= 0) {
+                it = particles.erase(it);
+            } else {
+                // Aplicar gravedad (simulación simple)
+                it->velocity.y += 9.8f * 0.008f; 
+                
+                // Actualizar posición
+                it->position.x += it->velocity.x;
+                it->position.y += it->velocity.y;
+                
+                // Actualizar rotación
+                it->rotation += it->angularVelocity * dt;
+                
+                ++it;
+            }
+        }
+        
+        if (particles.empty() && GetTime() - startTime > DURATION) {
+            isActive = false;
+        }
+    }
+
+    virtual void draw() {
+        if (!isActive) return;
+
+        for (const auto& p : particles) {
+            // Fading out effect near the end of life
+            float lifeRatio = p.lifetime / p.totalLifetime;
+            
+            // Usar DrawRectanglePro para dibujar el confeti como pequeños rectángulos rotatorios
+            DrawRectanglePro(
+                (Rectangle){p.position.x, p.position.y, p.size, p.size / 2.0f}, // Rectángulo base
+                (Vector2){p.size / 2.0f, p.size / 4.0f},                        // Origen (centro)
+                p.rotation,                                                     // Rotación
+                Fade(p.color, lifeRatio)                                        // Color con fade
+            );
+        }
+    }
+    
+    bool isActiveEffect() const { return isActive; }
+    void reset() { 
+        particles.clear(); 
+        isActive = false; 
+    }
+};
+
+
+class EnhancedConfettiSystem : public ConfettiSystem {
+private:
+    Vector2 windForce = {0, 0};
+    bool useWind = false;
+    
+public:
+    void setWind(float x, float y) {
+        windForce = {x, y};
+        useWind = true;
+    }
+    
+    void update(float dt) override {
+        ConfettiSystem::update(dt);
+        
+        if (useWind) {
+            for (auto& p : getParticles()) {
+                p.velocity.x += windForce.x * dt;
+                p.velocity.y += windForce.y * dt;
+            }
+        }
+    }
+    
+    void drawWithGlow() {
+        // Primera pasada: sombra/difuminado
+        for (const auto& p : getParticles()) {
+            float glowSize = p.size * 1.5f;
+            Color glowColor = Fade(p.color, 0.3f);
+            DrawCircleV(p.position, glowSize, glowColor);
+        }
+        
+        // Segunda pasada: partícula principal
+        ConfettiSystem::draw();
+    }
+};
 
 // Estado del juego optimizado - CON SISTEMA DE NIVELES
 struct GameState {
@@ -1177,6 +1338,10 @@ int main() {
     MenuSystem menuSystem(textureManager);
     AudioOverlay audioOverlay;
     
+    //Sistema de confeti
+    EnhancedConfettiSystem confettiSystem;
+    bool confettiActive = false;
+    
     GameScreen currentScreen = MENU;
     bool shouldClose = false;
     
@@ -1219,6 +1384,18 @@ int main() {
         }
         
         audioOverlay.update();
+        
+        float deltaTime = GetFrameTime();
+        confettiSystem.update(deltaTime);
+        
+        // Reiniciar confeti si terminó y el nivel sigue completado
+        if (!confettiSystem.isActiveEffect() && confettiActive && gameState.levelCompleted) {
+            Vector2 screenCenter = {
+                GameConstants::SCREEN_WIDTH / 2.0f,
+                GameConstants::SCREEN_HEIGHT / 2.0f
+            };
+            confettiSystem.startEffect(screenCenter);
+        }
 
         switch (currentScreen) {
             case MENU: {
@@ -1226,6 +1403,8 @@ int main() {
                     // NUEVO: Siempre empezar desde nivel 0
                     LevelSystem::initializeLevel(gameState, 0);
                     gameState.gameRunning = true;
+                    confettiSystem.reset();  // Reiniciar confeti
+                    confettiActive = false;
                     
                     masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
                     slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
@@ -1243,6 +1422,17 @@ int main() {
             } break;
             
             case GAMEPLAY: {
+                
+                if (gameState.bothInGoal && !confettiActive) {
+                    Vector2 screenCenter = {
+                        GameConstants::SCREEN_WIDTH / 2.0f,
+                        GameConstants::SCREEN_HEIGHT / 2.0f
+                    };
+                    confettiSystem.startEffect(screenCenter);
+                    confettiActive = true;
+                    logger.write("🎊 Confetti activado para victoria!");
+                }
+                
                 // NUEVO: Lógica de transición entre niveles
                 if (gameState.levelCompleted && IsKeyPressed(KEY_ENTER)) {
                     int nextLevel = gameState.currentLevel.load() + 1;
@@ -1250,6 +1440,8 @@ int main() {
                     if (nextLevel < GameConstants::TOTAL_LEVELS) {
                     // Detener hilos antes de seguir
                         gameState.gameRunning = false;
+                        confettiSystem.reset();  // Detener confeti
+                        confettiActive = false;
             
                     if (masterThread.joinable()) masterThread.join();
                     if (slaveThread.joinable()) slaveThread.join();
@@ -1271,6 +1463,8 @@ int main() {
                     } else {
                         // Volver al menú (reinicio tipo Super Mario)
                         gameState.gameRunning = false;
+                        confettiSystem.reset();  // Detener confeti
+                        confettiActive = false;
                         
                         if (masterThread.joinable()) masterThread.join();
                         if (slaveThread.joinable()) slaveThread.join();
@@ -1295,6 +1489,8 @@ int main() {
             case GAMEPLAY:
                 renderSystem.drawLaberinto(gameState);
                 renderSystem.drawPlayers(gameState);
+                
+                confettiSystem.drawWithGlow();
                 
                 // Fondo para mejor legibilidad
                 DrawRectangle(0, 0, GameConstants::SCREEN_WIDTH, 40, Fade(BLACK, 0.4f));

@@ -50,3 +50,7 @@ Thumbs.db
 # Configuraciones locales
 config.ini
 settings.local.json
+*.zip
+*.7z
+*.rar
+DuoMaze_Windows_Final/
