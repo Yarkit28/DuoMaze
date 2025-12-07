@@ -476,6 +476,11 @@ struct GameState {
     // NUEVO: Sistema de niveles
     std::atomic<int> currentLevel{0};
     std::atomic<bool> levelCompleted{false};
+    
+    // NUEVO: Contador de tiempo total del juego
+    std::atomic<double> startTime{0.0};
+    std::atomic<double> totalGameTime{0.0};
+    std::atomic<bool> gameStarted{false};
 };
 
 // Gestor de texturas optimizado
@@ -860,6 +865,39 @@ private:
 public:
 
     RenderSystem(TextureManager& tm) : textureManager(tm) {}
+    
+    void drawUpheavttText(const std::string& text, Vector2 position, float fontSize, 
+                         Color textColor, Color outlineColor = BLACK) {
+        
+        Font font = textureManager.getFont("resources/fonts/upheavtt.ttf", 
+                                          static_cast<int>(fontSize));
+        
+        if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) {
+            // Contorno grueso (8 direcciones)
+            std::vector<Vector2> outlineOffsets = {
+                {-2, 0}, {2, 0}, {0, -2}, {0, 2},
+                {-2, -2}, {2, -2}, {-2, 2}, {2, 2}
+            };
+            
+            // Dibujar contorno
+            for (const auto& offset : outlineOffsets) {
+                DrawTextEx(font, text.c_str(), 
+                          Vector2{position.x + offset.x, position.y + offset.y}, 
+                          fontSize, 1, outlineColor);
+            }
+            
+            // Dibujar texto principal
+            DrawTextEx(font, text.c_str(), position, fontSize, 1, textColor);
+            
+        } else {
+            // Fallback
+            DrawText(text.c_str(), (int)position.x + 1, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x - 1, (int)position.y, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y + 1, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y - 1, (int)fontSize, outlineColor);
+            DrawText(text.c_str(), (int)position.x, (int)position.y, (int)fontSize, textColor);
+        }
+    }
     
     // MÉTODO 1: Para arrows.ttf CON CONTORNO
     void drawArrowsText(const std::string& text, Vector2 position, float fontSize, 
@@ -1520,6 +1558,8 @@ int main() {
                     gameState.gameRunning = true;
                     confettiSystem.reset();  // Reiniciar confeti
                     confettiActive = false;
+                    gameState.startTime = GetTime();
+                    gameState.gameStarted = true;
                     
                     
                     masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
@@ -1578,6 +1618,7 @@ int main() {
             logger.write("Avanzando al nivel " + std::to_string(nextLevel));
                     } else {
                         // Volver al menú (reinicio tipo Super Mario)
+                        gameState.totalGameTime = GetTime() - gameState.startTime.load();
                         gameState.gameRunning = false;
                         confettiSystem.reset();  // Detener confeti
                         confettiActive = false;
@@ -1588,7 +1629,8 @@ int main() {
                         
                         currentScreen = MENU;
                         audio.cambiarAMusicaMenu();
-                        logger.write("Todos los niveles completados - Volviendo al menú");
+                        logger.write("Todos los niveles completados - Tiempo total: " + 
+                                   std::to_string(gameState.totalGameTime.load()) + " segundos");
                     }
                 }
             } break;
@@ -1600,6 +1642,38 @@ int main() {
         switch (currentScreen) {
             case MENU:
                 menuSystem.draw();
+                if (gameState.totalGameTime.load() > 0) {
+                    double totalTime = gameState.totalGameTime.load();
+                    int minutes = static_cast<int>(totalTime) / 60;
+                    int seconds = static_cast<int>(totalTime) % 60;
+                    int milliseconds = static_cast<int>((totalTime - static_cast<int>(totalTime)) * 100);
+                    
+                    std::string timeText = "Tiempo total: " + 
+                                          std::to_string(minutes) + ":" + 
+                                          (seconds < 10 ? "0" : "") + std::to_string(seconds) + ":" +
+                                          (milliseconds < 10 ? "0" : "") + std::to_string(milliseconds);
+                    
+                    // Crear un fondo para mejor legibilidad
+                    int textWidth = MeasureText(timeText.c_str(), 24);
+                    DrawRectangle(GameConstants::SCREEN_WIDTH/2 - textWidth/2 - 10, 
+                                 GameConstants::SCREEN_HEIGHT/2 - 150, 
+                                 textWidth + 20, 40, Fade(BLACK, 0.7f));
+                    
+                    // Dibujar el texto del tiempo
+                    DrawText(timeText.c_str(), 
+                            GameConstants::SCREEN_WIDTH/2 - textWidth/2, 
+                            GameConstants::SCREEN_HEIGHT/2 - 140, 
+                            24, GOLD);
+                    
+                    // Mensaje de felicitación
+                    std::string congratsText = "¡FELICIDADES!";
+                    int congratsWidth = MeasureText(congratsText.c_str(), 32);
+                    DrawText(congratsText.c_str(), 
+                            GameConstants::SCREEN_WIDTH/2 - congratsWidth/2, 
+                            GameConstants::SCREEN_HEIGHT/2 - 180, 
+                            32, GOLD);
+                }
+                
                 break;
                 
             case GAMEPLAY:
@@ -1607,6 +1681,7 @@ int main() {
                 renderSystem.drawPlayers(gameState);
                 
                 confettiSystem.drawWithGlow();
+                
                 
                 // Fondo para mejor legibilidad
                 DrawRectangle(0, 0, GameConstants::SCREEN_WIDTH, 40, Fade(BLACK, 0.4f));
@@ -1629,7 +1704,53 @@ int main() {
                 // Flechas CON CONTORNO usando arrows.ttf
     renderSystem.drawArrowsText("cbda", 
         Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 24, BLUE);
+                
+                
+                //Mostrar tiempo actual 
+                if (gameState.gameStarted) {
+        double currentTime = GetTime() - gameState.startTime.load();
+        int minutes = static_cast<int>(currentTime) / 60;
+        int seconds = static_cast<int>(currentTime) % 60;
+        int milliseconds = static_cast<int>((currentTime - static_cast<int>(currentTime)) * 100);
         
+        // Formato: MM:SS:MS
+        char timeBuffer[32];
+        snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d:%02d", 
+                minutes, seconds, milliseconds);
+        
+        std::string timeText = timeBuffer;
+        float fontSize = 20.0f; // Tamaño de fuente
+        
+        // Medir el texto para posicionarlo
+        Font upheavttFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 
+                                                  static_cast<int>(fontSize));
+        float textWidth = 0;
+        
+        if (upheavttFont.texture.id != 0) {
+            Vector2 textSize = MeasureTextEx(upheavttFont, timeText.c_str(), fontSize, 1);
+            textWidth = textSize.x;
+        } else {
+            textWidth = MeasureText(timeText.c_str(), (int)fontSize);
+        }
+        
+        // Posición en esquina inferior derecha con margen
+        float posX = GameConstants::SCREEN_WIDTH - textWidth - 20.0f;
+        float posY = GameConstants::SCREEN_HEIGHT - 35.0f;
+        
+        // Fondo semi-transparente para mejor legibilidad
+        DrawRectangleRounded((Rectangle){posX - 15.0f, posY - 5.0f, 
+                                        textWidth + 30.0f, fontSize + 15.0f}, 
+                            0.3f, 8, Fade(DARKBLUE, 0.7f));
+        
+        
+        
+        // Dibujar tiempo con upheavtt.ttf
+        renderSystem.drawUpheavttText(timeText, 
+                                     Vector2{posX, posY}, 
+                                     fontSize, 
+                                     GREEN,    // Color del texto
+                                     BLACK);   // Color del contorno
+                                     };
         
         
                 /*
