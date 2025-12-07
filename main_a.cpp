@@ -98,13 +98,25 @@ class AudioSystem {
 private:
     Music menuMusic;
     Music gameplayMusic;
+    Sound sfxOpenDoor;
+    Sound sfxLevelComplete;
+    Sound sfxClick;
     std::atomic<bool> audioRunning{true};
     std::atomic<bool> musicPaused{false};
     std::atomic<float> volume{0.7f};
     std::atomic<bool> isMenuMusic{true};  // true = menú, false = gameplay
     std::thread musicThread;
     
+    void playSFX(Sound sound, float volumeMultiplier = 1.0f) {
+        if (sound.frameCount > 0) {
+            SetSoundVolume(sound, volume.load() * volumeMultiplier);
+            PlaySound(sound);
+        }
+    }
+    
 public:
+    
+    
     bool cargarMusicas() {
         if (!IsAudioDeviceReady()) {
             InitAudioDevice();
@@ -125,6 +137,30 @@ public:
             return false;
         }
         
+        //Cargar efectos de sonido
+        sfxOpenDoor = LoadSound("resources/sound/sfx/abrir_puerta.wav");
+        if (sfxOpenDoor.frameCount == 0) {
+            logger.write("⚠️  Advertencia: No se pudo cargar abrir_puerta.wav");
+        } else {
+            logger.write("✅ SFX cargado: abrir_puerta.wav");
+        }
+        
+        sfxLevelComplete = LoadSound("resources/sound/sfx/zelda_headlift.wav");
+        if (sfxLevelComplete.frameCount == 0) {
+            logger.write("⚠️  Advertencia: No se pudo cargar zelda_headlift.wav");
+        } else {
+            logger.write("✅ SFX cargado: zelda_headlift.wav");
+        }
+        
+        sfxClick = LoadSound("resources/sound/sfx/clic.wav");
+        if (sfxClick.frameCount == 0) {
+            logger.write("⚠️  Advertencia: No se pudo cargar clic.wav");
+        } else {
+            logger.write("✅ SFX cargado: clic.wav");
+        }
+        
+        logger.write("✅ Audio cargado correctamente");
+        
         logger.write("✅ Ambas músicas cargadas correctamente");
         logger.write("   - Menú: Maze_Quest_Echoes.ogg");
         logger.write("   - Gameplay: Maze_Quest.ogg");
@@ -134,6 +170,19 @@ public:
         musicThread = std::thread(&AudioSystem::musicThreadFunction, this);
         
         return true;
+    }
+    
+    // NUEVO: Métodos públicos para reproducir SFX
+    void playDoorOpen() {
+        playSFX(sfxOpenDoor, 0.8f); // Un poco más bajo que la música
+    }
+    
+    void playLevelComplete() {
+        playSFX(sfxLevelComplete, 1.0f);
+    }
+    
+    void playClick() {
+        playSFX(sfxClick, 0.6f); // Click más suave
     }
     
     void musicThreadFunction() {
@@ -218,11 +267,23 @@ public:
         if (musicThread.joinable()) {
             musicThread.join();
         }
+        //Se libera la música
         if (menuMusic.frameCount > 0) {
             UnloadMusicStream(menuMusic);
         }
         if (gameplayMusic.frameCount > 0) {
             UnloadMusicStream(gameplayMusic);
+        }
+        
+        // NUEVO: Liberar efectos de sonido
+        if (sfxOpenDoor.frameCount > 0) {
+            UnloadSound(sfxOpenDoor);
+        }
+        if (sfxLevelComplete.frameCount > 0) {
+            UnloadSound(sfxLevelComplete);
+        }
+        if (sfxClick.frameCount > 0) {
+            UnloadSound(sfxClick);
         }
         if (IsAudioDeviceReady()) {
             CloseAudioDevice();
@@ -545,6 +606,8 @@ public:
         loadFont("resources/fonts/spaceranger.ttf", 28, 250);     // Tamaño principal nivel
         loadFont("resources/fonts/spaceranger.ttf", 32, 250);     // Tamaño más grande
         loadFont("resources/fonts/spaceranger.ttf", 24, 250);     // Tamaño alternativo
+        loadFont("resources/fonts/spaceranger.ttf", 40, 250);
+        loadFont("resources/fonts/spaceranger.ttf", 20, 250);
         
         texturesLoaded = true;
         logger.write("🎨 Texturas cargadas correctamente");
@@ -685,8 +748,13 @@ void physicsThread(GameState& state, bool isMaster, const std::vector<int>& keys
     logger.write((isMaster ? "Master" : "Slave") + std::string("PhysicsThread finished"));
 }
 
-void validationThread(GameState& state) {
+void validationThread(GameState& state, AudioSystem& audio) {
     logger.write("ValidationThread started");
+    
+    bool prevButton1Active = false;
+    bool prevButton2Active = false;
+    bool prevButton3Active = false;
+    bool prevLevelCompleted = false;
     
     while (state.gameRunning) {
         Vector2 masterPos, slavePos;
@@ -733,6 +801,27 @@ void validationThread(GameState& state) {
           // Solo activar si AMBOS están en el botón
           state.button3Active = masterOnButton3 && slaveOnButton3;
         }
+        
+        //Detectar cuando una puerta se abre
+        if (!prevButton1Active && state.button1Active) {
+            audio.playDoorOpen();
+            logger.write("🔊 SFX: Puerta 1 abierta");
+        }
+        if (!prevButton2Active && state.button2Active) {
+            audio.playDoorOpen();
+            logger.write("🔊 SFX: Puerta 2 abierta");
+        }
+        if (!prevButton3Active && state.button3Active) {
+            audio.playDoorOpen();
+            logger.write("🔊 SFX: Puerta 3 abierta");
+        }
+        
+        // Actualizar estados anteriores
+        prevButton1Active = state.button1Active.load();
+        prevButton2Active = state.button2Active.load();
+        prevButton3Active = state.button3Active.load();
+        
+        
         // Verificar victoria (se mantiene igual)
         bool masterOnGoal = (masterTileX >= 0 && masterTileX < GameConstants::MAP_WIDTH && 
                            masterTileY >= 0 && masterTileY < GameConstants::MAP_HEIGHT) &&
@@ -749,6 +838,14 @@ void validationThread(GameState& state) {
             state.levelCompleted = true;
             logger.write("✅ Nivel " + std::to_string(state.currentLevel.load()) + " completado!");
         }
+        
+        //Reproducir sonido cuando se completa el nivel
+        if (!prevLevelCompleted && state.levelCompleted) {
+            audio.playLevelComplete();
+            logger.write("🔊 SFX: Nivel completado");
+        }
+        
+        prevLevelCompleted = state.levelCompleted.load();
         
         SLEEP_MS(GameConstants::VALIDATION_UPDATE_RATE);
     }
@@ -978,6 +1075,8 @@ private:
     Rectangle playButton;
     Rectangle exitButton;
     TextureManager& textureManager;
+    AudioSystem& audioSystem;
+    
     void drawTextWithOutline(Font font, const char* text, Vector2 position, 
                            float fontSize, float spacing, Color textColor) {
         // Efecto de contorno
@@ -1015,10 +1114,14 @@ private:
     }
     
 public:
-    MenuSystem(TextureManager& tm) : textureManager(tm) {
+    MenuSystem(TextureManager& tm, AudioSystem& audio) : textureManager(tm), audioSystem(audio) {
         playButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2, 200, 50 };
         exitButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2 + 70, 200, 50 };
     }
+    
+    
+    
+    
     
     void draw() {
         Texture2D background = textureManager.getTexture("menu_background");
@@ -1136,14 +1239,21 @@ public:
     
     bool isPlayButtonPressed() {
         Vector2 mousePoint = GetMousePosition();
-        return CheckCollisionPointRec(mousePoint, playButton) && 
-               IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        bool pressed = CheckCollisionPointRec(mousePoint, playButton) && 
+                      IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        if (pressed) {
+            audioSystem.playClick();
+        }
+        return pressed;
     }
-    
     bool isExitButtonPressed() {
         Vector2 mousePoint = GetMousePosition();
-        return CheckCollisionPointRec(mousePoint, exitButton) && 
-               IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        bool pressed = CheckCollisionPointRec(mousePoint, exitButton) && 
+                      IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        if (pressed) {
+            audioSystem.playClick();
+        }
+        return pressed;
     }
 };
 
@@ -1335,7 +1445,7 @@ int main() {
     GameState gameState;
     TextureManager textureManager;
     RenderSystem renderSystem(textureManager);
-    MenuSystem menuSystem(textureManager);
+    MenuSystem menuSystem(textureManager, audio);
     AudioOverlay audioOverlay;
     
     //Sistema de confeti
@@ -1359,16 +1469,19 @@ int main() {
         if (IsKeyPressed(KEY_P)) {
             audio.togglePausa();
             audioOverlay.showTemporarily();
+            audio.playClick(); 
         }
         
         if (IsKeyPressed(KEY_M)) {
             audio.setVolume(0.0f);
             audioOverlay.showTemporarily();
+            audio.playClick(); 
         }
         
         if (IsKeyPressed(KEY_U)) {
             audio.setVolume(0.7f);
             audioOverlay.showTemporarily();
+            audio.playClick(); 
         }
         if (IsKeyPressed(KEY_H)) {
           if (audio.getVolume() > 0.35f) { // Si está en volumen alto
@@ -1377,10 +1490,12 @@ int main() {
             audio.setVolume(0.7f);       // Cambia a alto
           }
           audioOverlay.showTemporarily();
+          audio.playClick(); 
         }
         
         if (IsKeyPressed(KEY_V)) {
             audioOverlay.toggle();
+            audio.playClick();
         }
         
         audioOverlay.update();
@@ -1406,9 +1521,10 @@ int main() {
                     confettiSystem.reset();  // Reiniciar confeti
                     confettiActive = false;
                     
+                    
                     masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
                     slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
-                    validatorThread = std::thread(validationThread, std::ref(gameState));
+                    validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
                     
                     currentScreen = GAMEPLAY;
                     audio.cambiarAMusicaGameplay();
@@ -1456,7 +1572,7 @@ int main() {
                         // Crear NUEVOS hilos para el nuevo nivel
             masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
             slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
-            validatorThread = std::thread(validationThread, std::ref(gameState));
+            validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
             
             audio.cambiarAMusicaGameplay(); 
             logger.write("Avanzando al nivel " + std::to_string(nextLevel));
@@ -1531,27 +1647,76 @@ int main() {
                */
                 
                 // NUEVO: Pantallas de victoria diferenciadas
-                if (gameState.levelCompleted) {
-                    DrawRectangle(0, GameConstants::SCREEN_HEIGHT/2 - 60, GameConstants::SCREEN_WIDTH, 120, Fade(BLACK, 0.8f));
-                    
-                    if (gameState.currentLevel < GameConstants::TOTAL_LEVELS - 1) {
-                        // No es el último nivel
-                        DrawText("¡NIVEL COMPLETADO!", 
-                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("¡NIVEL COMPLETADO!", 40)/2, 
-                                 GameConstants::SCREEN_HEIGHT/2 - 40, 40, GREEN);
-                        DrawText("Presiona ENTER para siguiente nivel", 
-                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Presiona ENTER para siguiente nivel", 20)/2, 
-                                 GameConstants::SCREEN_HEIGHT/2 + 10, 20, WHITE);
-                    } else {
-                        // Último nivel
-                        DrawText("¡JUEGO COMPLETADO!", 
-                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("¡JUEGO COMPLETADO!", 40)/2, 
-                                 GameConstants::SCREEN_HEIGHT/2 - 40, 40, GOLD);
-                        DrawText("Presiona ENTER para volver al menú", 
-                                 GameConstants::SCREEN_WIDTH/2 - MeasureText("Presiona ENTER para volver al menú", 20)/2, 
-                                 GameConstants::SCREEN_HEIGHT/2 + 10, 20, WHITE);
-                    }
-                }
+if (gameState.levelCompleted) {
+    DrawRectangle(0, GameConstants::SCREEN_HEIGHT/2 - 60, 
+                  GameConstants::SCREEN_WIDTH, 120, Fade(BLACK, 0.8f));
+    
+    // Obtener la fuente una vez
+    Font spacerangerFont = textureManager.getFont("resources/fonts/spaceranger.ttf", 40);
+    Font spacerangerFontSmall = textureManager.getFont("resources/fonts/spaceranger.ttf", 20);
+    
+    if (gameState.currentLevel < GameConstants::TOTAL_LEVELS - 1) {
+        // No es el último nivel
+        std::string levelCompleteText = "¡NIVEL COMPLETADO!";
+        std::string nextLevelText = "Presiona ENTER para siguiente nivel";
+        
+        // Medir texto con la fuente real
+        Vector2 levelCompleteSize;
+        if (spacerangerFont.texture.id != 0) {
+            levelCompleteSize = MeasureTextEx(spacerangerFont, levelCompleteText.c_str(), 40, 1);
+        } else {
+            levelCompleteSize.x = MeasureText(levelCompleteText.c_str(), 40);
+        }
+        
+        renderSystem.drawSpacerangerText(levelCompleteText, 
+            Vector2{GameConstants::SCREEN_WIDTH/2 - levelCompleteSize.x/2, 
+                    GameConstants::SCREEN_HEIGHT/2 - 40}, 
+            40, GREEN);
+        
+        // Texto pequeño
+        Vector2 nextLevelSize;
+        if (spacerangerFontSmall.texture.id != 0) {
+            nextLevelSize = MeasureTextEx(spacerangerFontSmall, nextLevelText.c_str(), 20, 1);
+        } else {
+            nextLevelSize.x = MeasureText(nextLevelText.c_str(), 20);
+        }
+        
+        renderSystem.drawSpacerangerText(nextLevelText, 
+            Vector2{GameConstants::SCREEN_WIDTH/2 - nextLevelSize.x/2, 
+                    GameConstants::SCREEN_HEIGHT/2 + 10}, 
+            20, WHITE);
+    } else {
+        // Último nivel
+        std::string gameCompleteText = "¡JUEGO COMPLETADO!";
+        std::string backToMenuText = "Presiona ENTER para volver al menú";
+        
+        // Medir texto
+        Vector2 gameCompleteSize;
+        if (spacerangerFont.texture.id != 0) {
+            gameCompleteSize = MeasureTextEx(spacerangerFont, gameCompleteText.c_str(), 40, 1);
+        } else {
+            gameCompleteSize.x = MeasureText(gameCompleteText.c_str(), 40);
+        }
+        
+        renderSystem.drawSpacerangerText(gameCompleteText, 
+            Vector2{GameConstants::SCREEN_WIDTH/2 - gameCompleteSize.x/2, 
+                    GameConstants::SCREEN_HEIGHT/2 - 40}, 
+            40, GOLD);
+        
+        // Texto pequeño
+        Vector2 backToMenuSize;
+        if (spacerangerFontSmall.texture.id != 0) {
+            backToMenuSize = MeasureTextEx(spacerangerFontSmall, backToMenuText.c_str(), 20, 1);
+        } else {
+            backToMenuSize.x = MeasureText(backToMenuText.c_str(), 20);
+        }
+        
+        renderSystem.drawSpacerangerText(backToMenuText, 
+            Vector2{GameConstants::SCREEN_WIDTH/2 - backToMenuSize.x/2, 
+                    GameConstants::SCREEN_HEIGHT/2 + 10}, 
+            20, WHITE);
+    }
+}
                 
                 DrawText("Controles: WASD (Master), Flechas (Slave)", 
                          GameConstants::SCREEN_WIDTH/2 - MeasureText("Controles: WASD (Master), Flechas (Slave)", 16)/2, 
