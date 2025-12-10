@@ -1,21 +1,23 @@
-DUO MAZE - INSTRUCCIONES (SISTEMA DE NIVELES)
-=============================================
+DUO MAZE - INSTRUCCIONES (SISTEMA DE NIVELES AVANZADO)
+======================================================
 
 CONTROLES:
 - Personaje ROJO (Master): W-A-S-D
 - Personaje AZUL (Slave): Flechas direccionales
-- Audio: P (pausar), M (mutear), U (subir volumen), V (controles audio)
+- Audio: P (pausar), M (mutear), U (volumen alto), H (volumen bajo)
+- Controles audio: V (mostrar/ocultar)
 - Niveles: ENTER (avanzar al siguiente nivel)
 
 OBJETIVO:
 Llevar a ambos personajes a la meta cooperando en cada nivel.
 
 SISTEMA DE NIVELES MEJORADO:
-- 2 niveles completos con mecánicas únicas
+- 4 niveles completos con mecánicas únicas
 - Botones cooperativos (individuales y conjuntos)
 - Obstáculos específicos por jugador
 - Puertas que requieren cooperación
 - Transición automática entre niveles
+- Sistema de confeti en victoria
 
 NUEVAS MECÁNICAS:
 - Botón 3: Requiere que AMBOS jugadores estén encima
@@ -23,24 +25,38 @@ NUEVAS MECÁNICAS:
 - Obstáculos azules: Solo el jugador AZUL puede pasar
 - Puertas moradas: Requieren botón cooperativo
 
+SISTEMA DE AUDIO MEJORADO:
+- Música diferente en menú y gameplay
+- Efectos de sonido para acciones específicas
+- Controles de audio mejorados (4 niveles de volumen)
+
 REQUISITOS:
 ✅ Zero instalación - solo ejecutar DuoMaze.exe
 ✅ Windows 7/8/10/11 (64 bits)
 
 ESTRUCTURA ACTUALIZADA:
 ├── DuoMaze.exe
+├── INSTRUCCIONES.txt
 └── resources/
-    ├── fonts/          # Fuentes del juego (Arrows.ttf)
+    ├── fonts/          # Fuentes del juego (Arrows.ttf, upheavtt.ttf, etc.)
     ├── sprites/        # Gráficos y texturas (ESENCIAL)
     ├── backgrounds/    # Fondos de pantalla
     └── sound/
-        ├── music/      # Música de fondo
-        └── sfx/        # Efectos de sonido
+        ├── music/      # Música de fondo (2 músicas diferentes)
+        └── sfx/        # Efectos de sonido (abrir puertas, victoria, clics)
+
+INSTRUCCIONES DE USO:
+1. Extraer todo el contenido del ZIP
+2. Ejecutar DuoMaze.exe
+3. ¡Jugar!
+
+NOTA: Mantener todos los archivos en la misma carpeta.
 
 DESARROLLADO CON:
 - Raylib 4.5.0
 - Sistema multihilo concurrente
-- Sistema de niveles progresivo
+- Sistema de niveles progresivo (4 niveles)
+- Sistema de partículas para confeti
 - Compilado estáticamente
 
 ¡Disfruta el juego cooperativo!

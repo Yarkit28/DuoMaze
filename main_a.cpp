@@ -421,8 +421,20 @@ class EnhancedConfettiSystem : public ConfettiSystem {
 private:
     Vector2 windForce = {0, 0};
     bool useWind = false;
+    float opacity = 1.0f;
     
 public:
+    void setOpacity(float value) { opacity = value; }
+    
+    void draw() override {
+        if (!isActive) return;
+
+        for (const auto& p : particles) {
+            float lifeRatio = p.lifetime / p.totalLifetime;
+            float finalOpacity = lifeRatio * opacity;
+        }
+    }
+    
     void setWind(float x, float y) {
         windForce = {x, y};
         useWind = true;
@@ -1114,6 +1126,7 @@ private:
     Rectangle exitButton;
     TextureManager& textureManager;
     AudioSystem& audioSystem;
+    RenderSystem& renderSystem;
     
     void drawTextWithOutline(Font font, const char* text, Vector2 position, 
                            float fontSize, float spacing, Color textColor) {
@@ -1152,7 +1165,7 @@ private:
     }
     
 public:
-    MenuSystem(TextureManager& tm, AudioSystem& audio) : textureManager(tm), audioSystem(audio) {
+    MenuSystem(TextureManager& tm, AudioSystem& audio, RenderSystem& rs) : textureManager(tm), audioSystem(audio), renderSystem(rs) {
         playButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2, 200, 50 };
         exitButton = { GameConstants::SCREEN_WIDTH/2 - 100, GameConstants::SCREEN_HEIGHT/2 + 70, 200, 50 };
     }
@@ -1292,6 +1305,46 @@ public:
             audioSystem.playClick();
         }
         return pressed;
+    }
+    
+    void drawTotalTime(double totalTime) {
+        if (totalTime <= 0) return;
+        
+        int minutes = static_cast<int>(totalTime) / 60;
+        int seconds = static_cast<int>(totalTime) % 60;
+        int milliseconds = static_cast<int>((totalTime - static_cast<int>(totalTime)) * 100);
+        
+        // Formatear el texto
+        char timeBuffer[32];
+        snprintf(timeBuffer, sizeof(timeBuffer), "TIEMPO TOTAL: %02d:%02d:%02d", 
+                minutes, seconds, milliseconds);
+        
+        std::string timeText = timeBuffer;
+        
+        // POSICIÓN: Debajo del botón SALIR
+        float posY = exitButton.y + exitButton.height + 20;
+        float posX = GameConstants::SCREEN_WIDTH/2;
+        
+        // Tamaño de fuente
+        float fontSize = 24.0f;
+        
+        // Usar spaceranger.ttf
+        renderSystem.drawSpacerangerText(timeText, 
+            Vector2{posX, posY}, 
+            fontSize, 
+            GOLD,
+            BLACK);
+        
+        // Mensaje de felicitación (opcional)
+        std::string congratsText = "¡FELICIDADES!";
+        float congratsFontSize = 28.0f;
+        float congratsY = posY - 40;
+        
+        renderSystem.drawSpacerangerText(congratsText, 
+            Vector2{posX, congratsY}, 
+            congratsFontSize, 
+            GOLD,
+            BLACK);
     }
 };
 
@@ -1483,7 +1536,7 @@ int main() {
     GameState gameState;
     TextureManager textureManager;
     RenderSystem renderSystem(textureManager);
-    MenuSystem menuSystem(textureManager, audio);
+    MenuSystem menuSystem(textureManager, audio, renderSystem);
     AudioOverlay audioOverlay;
     
     //Sistema de confeti
@@ -1504,352 +1557,317 @@ int main() {
     std::thread validatorThread;
 
     while (!WindowShouldClose() && !shouldClose) {
-        if (IsKeyPressed(KEY_P)) {
-            audio.togglePausa();
-            audioOverlay.showTemporarily();
-            audio.playClick(); 
-        }
-        
-        if (IsKeyPressed(KEY_M)) {
-            audio.setVolume(0.0f);
-            audioOverlay.showTemporarily();
-            audio.playClick(); 
-        }
-        
-        if (IsKeyPressed(KEY_U)) {
+    // CONTROLES DE AUDIO GLOBALES (funcionan en cualquier pantalla) - UNA SOLA VEZ
+    if (IsKeyPressed(KEY_P)) {
+        audio.togglePausa();
+        audioOverlay.showTemporarily();
+        audio.playClick(); 
+    }
+    
+    if (IsKeyPressed(KEY_M)) {
+        audio.setVolume(0.0f);
+        audioOverlay.showTemporarily();
+        audio.playClick(); 
+    }
+    
+    if (IsKeyPressed(KEY_U)) {
+        audio.setVolume(0.7f);
+        audioOverlay.showTemporarily();
+        audio.playClick(); 
+    }
+    
+    if (IsKeyPressed(KEY_H)) {
+        if (audio.getVolume() > 0.35f) {
+            audio.setVolume(0.15f);
+        } else {
             audio.setVolume(0.7f);
-            audioOverlay.showTemporarily();
-            audio.playClick(); 
         }
-        if (IsKeyPressed(KEY_H)) {
-          if (audio.getVolume() > 0.35f) { // Si está en volumen alto
-              audio.setVolume(0.15f);      // Cambia a bajo
-          } else {
-            audio.setVolume(0.7f);       // Cambia a alto
-          }
-          audioOverlay.showTemporarily();
-          audio.playClick(); 
-        }
-        
-        if (IsKeyPressed(KEY_V)) {
-            audioOverlay.toggle();
-            audio.playClick();
-        }
-        
-        audioOverlay.update();
-        
-        float deltaTime = GetFrameTime();
-        confettiSystem.update(deltaTime);
-        
-        // Reiniciar confeti si terminó y el nivel sigue completado
-        if (!confettiSystem.isActiveEffect() && confettiActive && gameState.levelCompleted) {
-            Vector2 screenCenter = {
-                GameConstants::SCREEN_WIDTH / 2.0f,
-                GameConstants::SCREEN_HEIGHT / 2.0f
-            };
-            confettiSystem.startEffect(screenCenter);
-        }
+        audioOverlay.showTemporarily();
+        audio.playClick(); 
+    }
+    
+    if (IsKeyPressed(KEY_V)) {
+        audioOverlay.toggle();
+        audio.playClick();
+    }
+    
+    // ACTUALIZACIÓN DEL AUDIO OVERLAY Y CONFETI - UNA SOLA VEZ
+    audioOverlay.update();
+    
+    float deltaTime = GetFrameTime();
+    confettiSystem.update(deltaTime);
+    
+    // Reiniciar confeti si terminó y el nivel sigue completado
+    if (!confettiSystem.isActiveEffect() && confettiActive && gameState.levelCompleted) {
+        Vector2 screenCenter = {
+            GameConstants::SCREEN_WIDTH / 2.0f,
+            GameConstants::SCREEN_HEIGHT / 2.0f
+        };
+        confettiSystem.startEffect(screenCenter);
+    }
 
-        switch (currentScreen) {
-            case MENU: {
-                if (menuSystem.isPlayButtonPressed()) {
-                    // NUEVO: Siempre empezar desde nivel 0
-                    LevelSystem::initializeLevel(gameState, 0);
-                    gameState.gameRunning = true;
-                    confettiSystem.reset();  // Reiniciar confeti
-                    confettiActive = false;
-                    gameState.startTime = GetTime();
-                    gameState.gameStarted = true;
-                    
-                    
-                    masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
-                    slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
-                    validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
-                    
-                    currentScreen = GAMEPLAY;
-                    audio.cambiarAMusicaGameplay();
-                    logger.write("Juego iniciado - Nivel 0");
-                }
+    // LÓGICA DE ACTUALIZACIÓN POR PANTALLA
+    switch (currentScreen) {
+        case MENU:
+            if (menuSystem.isPlayButtonPressed()) {
+                currentScreen = GAMEPLAY;
+                gameState.startTime = GetTime();
+                gameState.gameStarted = true;
+                LevelSystem::initializeLevel(gameState, 0);
                 
-                if (menuSystem.isExitButtonPressed()) {
-                    shouldClose = true;
-                    logger.write("Juego cerrado desde menú");
-                }
-            } break;
+                // Iniciar hilos de física y validación
+                gameState.gameRunning = true;
+                masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
+                slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
+                validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
+                
+                audio.cambiarAMusicaGameplay();
+            }
             
-            case GAMEPLAY: {
-                
-                if (gameState.bothInGoal && !confettiActive) {
-                    Vector2 screenCenter = {
-                        GameConstants::SCREEN_WIDTH / 2.0f,
-                        GameConstants::SCREEN_HEIGHT / 2.0f
-                    };
-                    confettiSystem.startEffect(screenCenter);
-                    confettiActive = true;
-                    logger.write("🎊 Confetti activado para victoria!");
-                }
-                
-                // NUEVO: Lógica de transición entre niveles
-                if (gameState.levelCompleted && IsKeyPressed(KEY_ENTER)) {
-                    int nextLevel = gameState.currentLevel.load() + 1;
-                    
-                    if (nextLevel < GameConstants::TOTAL_LEVELS) {
+            if (menuSystem.isExitButtonPressed()) {
+                shouldClose = true;
+            }
+            break;
+            
+        case GAMEPLAY:
+            // Lógica de confeti - ya se hace arriba, no es necesario aquí
+            
+            // Lógica de transición entre niveles
+            if (gameState.levelCompleted && IsKeyPressed(KEY_ENTER)) {
+                int nextLevel = gameState.currentLevel.load() + 1;
+                confettiSystem.reset();
+                confettiActive = false;
+                if (nextLevel < GameConstants::TOTAL_LEVELS) {
                     // Detener hilos antes de seguir
-                        gameState.gameRunning = false;
-                        confettiSystem.reset();  // Detener confeti
-                        confettiActive = false;
+                    gameState.gameRunning = false;
+                    confettiSystem.reset();
+                    confettiActive = false;
             
                     if (masterThread.joinable()) masterThread.join();
                     if (slaveThread.joinable()) slaveThread.join();
                     if (validatorThread.joinable()) validatorThread.join();
                         
-                        // Cargar siguiente nivel
-                        LevelSystem::initializeLevel(gameState, nextLevel);
-                        
-                        // Reiniciar flag para nuevos hilos
-            gameState.gameRunning = true;
+                    // Cargar siguiente nivel
+                    LevelSystem::initializeLevel(gameState, nextLevel);
+                    
+                    // Reiniciar flag para nuevos hilos
+                    gameState.gameRunning = true;
+                    
+                    // Crear NUEVOS hilos para el nuevo nivel
+                    masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
+                    slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
+                    validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
+                    
+                    audio.cambiarAMusicaGameplay(); 
+                    logger.write("Avanzando al nivel " + std::to_string(nextLevel));
+                } else {
+                    // Volver al menú
+                    gameState.totalGameTime = GetTime() - gameState.startTime.load();
+                    gameState.gameRunning = false;
+                    confettiSystem.reset();
+                    confettiActive = false;
+                    
+                    if (masterThread.joinable()) masterThread.join();
+                    if (slaveThread.joinable()) slaveThread.join();
+                    if (validatorThread.joinable()) validatorThread.join();
+                    
+                    currentScreen = MENU;
+                    audio.cambiarAMusicaMenu();
+                    logger.write("Todos los niveles completados - Tiempo total: " + 
+                               std::to_string(gameState.totalGameTime.load()) + " segundos");
+                }
+            }
+            break;
+    }
+
+    // RENDERIZADO (SOLO UN switch)
+    BeginDrawing();
+    ClearBackground(RAYWHITE);  // Importante: limpiar el fondo cada frame
+
+    switch (currentScreen) {
+        case MENU:
+            menuSystem.draw();
+            if (gameState.totalGameTime.load() > 0) {
+                double totalTime = gameState.totalGameTime.load();
+                int minutes = static_cast<int>(totalTime) / 60;
+                int seconds = static_cast<int>(totalTime) % 60;
+                int milliseconds = static_cast<int>((totalTime - static_cast<int>(totalTime)) * 100);
+                
+                std::string timeText = "Tiempo total: " + 
+                                      std::to_string(minutes) + ":" + 
+                                      (seconds < 10 ? "0" : "") + std::to_string(seconds) + ":" +
+                                      (milliseconds < 10 ? "0" : "") + std::to_string(milliseconds);
+                
+                int textWidth = MeasureText(timeText.c_str(), 24);
+                DrawRectangle(GameConstants::SCREEN_WIDTH/2 - textWidth/2 - 10, 
+                             GameConstants::SCREEN_HEIGHT/2 - 150, 
+                             textWidth + 20, 40, Fade(BLACK, 0.7f));
+                
+                DrawText(timeText.c_str(), 
+                        GameConstants::SCREEN_WIDTH/2 - textWidth/2, 
+                        GameConstants::SCREEN_HEIGHT/2 - 140, 
+                        24, GOLD);
+                
+                std::string congratsText = "¡FELICIDADES!";
+                int congratsWidth = MeasureText(congratsText.c_str(), 32);
+                DrawText(congratsText.c_str(), 
+                        GameConstants::SCREEN_WIDTH/2 - congratsWidth/2, 
+                        GameConstants::SCREEN_HEIGHT/2 - 180, 
+                        32, GOLD);
+            }
+            break;
             
-                        // Crear NUEVOS hilos para el nuevo nivel
-            masterThread = std::thread(physicsThread, std::ref(gameState), true, std::ref(masterKeys));
-            slaveThread = std::thread(physicsThread, std::ref(gameState), false, std::ref(slaveKeys));
-            validatorThread = std::thread(validationThread, std::ref(gameState), std::ref(audio));
+        case GAMEPLAY:
             
-            audio.cambiarAMusicaGameplay(); 
-            logger.write("Avanzando al nivel " + std::to_string(nextLevel));
+            if (gameState.bothInGoal && !confettiActive) {
+        Vector2 screenCenter = {
+            GameConstants::SCREEN_WIDTH / 2.0f,
+            GameConstants::SCREEN_HEIGHT / 2.0f
+        };
+        confettiSystem.startEffect(screenCenter);
+        confettiActive = true;
+        logger.write("🎊 Confetti activado para victoria!");
+    }
+            
+            renderSystem.drawLaberinto(gameState);
+            renderSystem.drawPlayers(gameState);
+            
+            confettiSystem.drawWithGlow();
+            
+            // Fondo para mejor legibilidad
+            DrawRectangle(0, 0, GameConstants::SCREEN_WIDTH, 40, Fade(BLACK, 0.4f));
+            
+            // 1. CONTROLES - Usando inversionz.ttf (SIN contorno)
+            renderSystem.drawInversionzText("master: wasd", Vector2{10, 10}, 22, RED);
+
+            // 2. NIVEL - Usando spaceranger.ttf (CON contorno)
+            std::string levelText = TextFormat("NIVEL %d", gameState.currentLevel.load() + 1);
+            float levelTextWidth = MeasureText(levelText.c_str(), 28);
+            renderSystem.drawSpacerangerText(levelText, 
+                Vector2{GameConstants::SCREEN_WIDTH/2 - levelTextWidth/2, 5}, 
+                28, GOLD);
+
+            // 3. SLAVE - Usando inversionz.ttf (SIN contorno) + arrows.ttf (CON contorno)
+            renderSystem.drawInversionzText("slave:", 
+                Vector2{(float)GameConstants::SCREEN_WIDTH - 260, 10}, 22, BLUE);
+            
+            // Flechas CON CONTORNO usando arrows.ttf
+            renderSystem.drawArrowsText("cbda", 
+                Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 24, BLUE);
+            
+            // Mostrar tiempo actual 
+            if (gameState.gameStarted) {
+                double currentTime = GetTime() - gameState.startTime.load();
+                int minutes = static_cast<int>(currentTime) / 60;
+                int seconds = static_cast<int>(currentTime) % 60;
+                int milliseconds = static_cast<int>((currentTime - static_cast<int>(currentTime)) * 100);
+                
+                char timeBuffer[32];
+                snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d:%02d", 
+                        minutes, seconds, milliseconds);
+                
+                std::string timeText = timeBuffer;
+                float fontSize = 20.0f;
+                
+                Font upheavttFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 
+                                                          static_cast<int>(fontSize));
+                float textWidth = 0;
+                
+                if (upheavttFont.texture.id != 0) {
+                    Vector2 textSize = MeasureTextEx(upheavttFont, timeText.c_str(), fontSize, 1);
+                    textWidth = textSize.x;
+                } else {
+                    textWidth = MeasureText(timeText.c_str(), (int)fontSize);
+                }
+                
+                float posX = GameConstants::SCREEN_WIDTH - textWidth - 20.0f;
+                float posY = GameConstants::SCREEN_HEIGHT - 35.0f;
+                
+                DrawRectangleRounded((Rectangle){posX - 15.0f, posY - 5.0f, 
+                                                textWidth + 30.0f, fontSize + 15.0f}, 
+                                    0.3f, 8, Fade(DARKBLUE, 0.7f));
+                
+                renderSystem.drawUpheavttText(timeText, 
+                                             Vector2{posX, posY}, 
+                                             fontSize, 
+                                             GREEN,
+                                             BLACK);
+            }
+            
+            // Pantallas de victoria diferenciadas
+            if (gameState.levelCompleted) {
+                DrawRectangle(0, GameConstants::SCREEN_HEIGHT/2 - 60, 
+                              GameConstants::SCREEN_WIDTH, 120, Fade(BLACK, 0.8f));
+                
+                Font spacerangerFont = textureManager.getFont("resources/fonts/spaceranger.ttf", 40);
+                Font spacerangerFontSmall = textureManager.getFont("resources/fonts/spaceranger.ttf", 20);
+                
+                if (gameState.currentLevel < GameConstants::TOTAL_LEVELS - 1) {
+                    std::string levelCompleteText = "¡NIVEL COMPLETADO!";
+                    std::string nextLevelText = "Presiona ENTER para siguiente nivel";
+                    
+                    Vector2 levelCompleteSize;
+                    if (spacerangerFont.texture.id != 0) {
+                        levelCompleteSize = MeasureTextEx(spacerangerFont, levelCompleteText.c_str(), 40, 1);
                     } else {
-                        // Volver al menú (reinicio tipo Super Mario)
-                        gameState.totalGameTime = GetTime() - gameState.startTime.load();
-                        gameState.gameRunning = false;
-                        confettiSystem.reset();  // Detener confeti
-                        confettiActive = false;
-                        
-                        if (masterThread.joinable()) masterThread.join();
-                        if (slaveThread.joinable()) slaveThread.join();
-                        if (validatorThread.joinable()) validatorThread.join();
-                        
-                        currentScreen = MENU;
-                        audio.cambiarAMusicaMenu();
-                        logger.write("Todos los niveles completados - Tiempo total: " + 
-                                   std::to_string(gameState.totalGameTime.load()) + " segundos");
+                        levelCompleteSize.x = MeasureText(levelCompleteText.c_str(), 40);
                     }
+                    
+                    renderSystem.drawSpacerangerText(levelCompleteText, 
+                        Vector2{GameConstants::SCREEN_WIDTH/2 - levelCompleteSize.x/2, 
+                                GameConstants::SCREEN_HEIGHT/2 - 40}, 
+                        40, GREEN);
+                    
+                    Vector2 nextLevelSize;
+                    if (spacerangerFontSmall.texture.id != 0) {
+                        nextLevelSize = MeasureTextEx(spacerangerFontSmall, nextLevelText.c_str(), 20, 1);
+                    } else {
+                        nextLevelSize.x = MeasureText(nextLevelText.c_str(), 20);
+                    }
+                    
+                    renderSystem.drawSpacerangerText(nextLevelText, 
+                        Vector2{GameConstants::SCREEN_WIDTH/2 - nextLevelSize.x/2, 
+                                GameConstants::SCREEN_HEIGHT/2 + 10}, 
+                        20, WHITE);
+                } else {
+                    std::string gameCompleteText = "¡JUEGO COMPLETADO!";
+                    std::string backToMenuText = "Presiona ENTER para volver al menú";
+                    
+                    Vector2 gameCompleteSize;
+                    if (spacerangerFont.texture.id != 0) {
+                        gameCompleteSize = MeasureTextEx(spacerangerFont, gameCompleteText.c_str(), 40, 1);
+                    } else {
+                        gameCompleteSize.x = MeasureText(gameCompleteText.c_str(), 40);
+                    }
+                    
+                    renderSystem.drawSpacerangerText(gameCompleteText, 
+                        Vector2{GameConstants::SCREEN_WIDTH/2 - gameCompleteSize.x/2, 
+                                GameConstants::SCREEN_HEIGHT/2 - 40}, 
+                        40, GOLD);
+                    
+                    Vector2 backToMenuSize;
+                    if (spacerangerFontSmall.texture.id != 0) {
+                        backToMenuSize = MeasureTextEx(spacerangerFontSmall, backToMenuText.c_str(), 20, 1);
+                    } else {
+                        backToMenuSize.x = MeasureText(backToMenuText.c_str(), 20);
+                    }
+                    
+                    renderSystem.drawSpacerangerText(backToMenuText, 
+                        Vector2{GameConstants::SCREEN_WIDTH/2 - backToMenuSize.x/2, 
+                                GameConstants::SCREEN_HEIGHT/2 + 10}, 
+                        20, WHITE);
                 }
-            } break;
-        }
-
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        switch (currentScreen) {
-            case MENU:
-                menuSystem.draw();
-                if (gameState.totalGameTime.load() > 0) {
-                    double totalTime = gameState.totalGameTime.load();
-                    int minutes = static_cast<int>(totalTime) / 60;
-                    int seconds = static_cast<int>(totalTime) % 60;
-                    int milliseconds = static_cast<int>((totalTime - static_cast<int>(totalTime)) * 100);
-                    
-                    std::string timeText = "Tiempo total: " + 
-                                          std::to_string(minutes) + ":" + 
-                                          (seconds < 10 ? "0" : "") + std::to_string(seconds) + ":" +
-                                          (milliseconds < 10 ? "0" : "") + std::to_string(milliseconds);
-                    
-                    // Crear un fondo para mejor legibilidad
-                    int textWidth = MeasureText(timeText.c_str(), 24);
-                    DrawRectangle(GameConstants::SCREEN_WIDTH/2 - textWidth/2 - 10, 
-                                 GameConstants::SCREEN_HEIGHT/2 - 150, 
-                                 textWidth + 20, 40, Fade(BLACK, 0.7f));
-                    
-                    // Dibujar el texto del tiempo
-                    DrawText(timeText.c_str(), 
-                            GameConstants::SCREEN_WIDTH/2 - textWidth/2, 
-                            GameConstants::SCREEN_HEIGHT/2 - 140, 
-                            24, GOLD);
-                    
-                    // Mensaje de felicitación
-                    std::string congratsText = "¡FELICIDADES!";
-                    int congratsWidth = MeasureText(congratsText.c_str(), 32);
-                    DrawText(congratsText.c_str(), 
-                            GameConstants::SCREEN_WIDTH/2 - congratsWidth/2, 
-                            GameConstants::SCREEN_HEIGHT/2 - 180, 
-                            32, GOLD);
-                }
-                
-                break;
-                
-            case GAMEPLAY:
-                renderSystem.drawLaberinto(gameState);
-                renderSystem.drawPlayers(gameState);
-                
-                confettiSystem.drawWithGlow();
-                
-                
-                // Fondo para mejor legibilidad
-                DrawRectangle(0, 0, GameConstants::SCREEN_WIDTH, 40, Fade(BLACK, 0.4f));
-                
-                
-                // 1. CONTROLES - Usando inversionz.ttf (SIN contorno)
-                renderSystem.drawInversionzText("master: wasd", Vector2{10, 10}, 22, RED);
-    
-                // 2. NIVEL - Usando spaceranger.ttf (CON contorno)
-                std::string levelText = TextFormat("NIVEL %d", gameState.currentLevel.load() + 1);
-                float levelTextWidth = MeasureText(levelText.c_str(), 28); // Estimación
-                renderSystem.drawSpacerangerText(levelText, 
-                  Vector2{GameConstants::SCREEN_WIDTH/2 - levelTextWidth/2, 5}, 
-                    28, GOLD);
-    
-    // 3. SLAVE - Usando inversionz.ttf (SIN contorno) + arrows.ttf (CON contorno)
-    renderSystem.drawInversionzText("slave:", 
-        Vector2{(float)GameConstants::SCREEN_WIDTH - 260, 10}, 22, BLUE);
-    
-                // Flechas CON CONTORNO usando arrows.ttf
-    renderSystem.drawArrowsText("cbda", 
-        Vector2{(float)GameConstants::SCREEN_WIDTH - 110, 10}, 24, BLUE);
-                
-                
-                //Mostrar tiempo actual 
-                if (gameState.gameStarted) {
-        double currentTime = GetTime() - gameState.startTime.load();
-        int minutes = static_cast<int>(currentTime) / 60;
-        int seconds = static_cast<int>(currentTime) % 60;
-        int milliseconds = static_cast<int>((currentTime - static_cast<int>(currentTime)) * 100);
-        
-        // Formato: MM:SS:MS
-        char timeBuffer[32];
-        snprintf(timeBuffer, sizeof(timeBuffer), "%02d:%02d:%02d", 
-                minutes, seconds, milliseconds);
-        
-        std::string timeText = timeBuffer;
-        float fontSize = 20.0f; // Tamaño de fuente
-        
-        // Medir el texto para posicionarlo
-        Font upheavttFont = textureManager.getFont("resources/fonts/upheavtt.ttf", 
-                                                  static_cast<int>(fontSize));
-        float textWidth = 0;
-        
-        if (upheavttFont.texture.id != 0) {
-            Vector2 textSize = MeasureTextEx(upheavttFont, timeText.c_str(), fontSize, 1);
-            textWidth = textSize.x;
-        } else {
-            textWidth = MeasureText(timeText.c_str(), (int)fontSize);
-        }
-        
-        // Posición en esquina inferior derecha con margen
-        float posX = GameConstants::SCREEN_WIDTH - textWidth - 20.0f;
-        float posY = GameConstants::SCREEN_HEIGHT - 35.0f;
-        
-        // Fondo semi-transparente para mejor legibilidad
-        DrawRectangleRounded((Rectangle){posX - 15.0f, posY - 5.0f, 
-                                        textWidth + 30.0f, fontSize + 15.0f}, 
-                            0.3f, 8, Fade(DARKBLUE, 0.7f));
-        
-        
-        
-        // Dibujar tiempo con upheavtt.ttf
-        renderSystem.drawUpheavttText(timeText, 
-                                     Vector2{posX, posY}, 
-                                     fontSize, 
-                                     GREEN,    // Color del texto
-                                     BLACK);   // Color del contorno
-                                     };
-        
-        
-                /*
-                DrawText(TextFormat("Botón 1 (Rojo): %s", gameState.button1Active ? "ACTIVADO" : "INACTIVO"), 
-                         10, 40, 18, gameState.button1Active ? GREEN : RED);
-                DrawText(TextFormat("Botón 2 (Azul): %s", gameState.button2Active ? "ACTIVADO" : "INACTIVO"), 
-                         10, 70, 18, gameState.button2Active ? GREEN : BLUE);
-                DrawText(TextFormat("Botón 3 (Ambos): %s", gameState.button3Active ? "ACTIVADO" : "INACTIVO"), 
-                         10, 100, 18, gameState.button3Active ? GREEN : ORANGE);
-                
-                DrawText(TextFormat("Master: %s", gameState.masterInGoal ? "EN META" : "EN CAMINO"), 
-                         10, 130, 18, gameState.masterInGoal ? GREEN : RED);
-                DrawText(TextFormat("Slave: %s", gameState.slaveInGoal ? "EN META" : "EN CAMINO"), 
-                         10, 160, 18, gameState.slaveInGoal ? GREEN : BLUE);
-               */
-                
-                // NUEVO: Pantallas de victoria diferenciadas
-if (gameState.levelCompleted) {
-    DrawRectangle(0, GameConstants::SCREEN_HEIGHT/2 - 60, 
-                  GameConstants::SCREEN_WIDTH, 120, Fade(BLACK, 0.8f));
-    
-    // Obtener la fuente una vez
-    Font spacerangerFont = textureManager.getFont("resources/fonts/spaceranger.ttf", 40);
-    Font spacerangerFontSmall = textureManager.getFont("resources/fonts/spaceranger.ttf", 20);
-    
-    if (gameState.currentLevel < GameConstants::TOTAL_LEVELS - 1) {
-        // No es el último nivel
-        std::string levelCompleteText = "¡NIVEL COMPLETADO!";
-        std::string nextLevelText = "Presiona ENTER para siguiente nivel";
-        
-        // Medir texto con la fuente real
-        Vector2 levelCompleteSize;
-        if (spacerangerFont.texture.id != 0) {
-            levelCompleteSize = MeasureTextEx(spacerangerFont, levelCompleteText.c_str(), 40, 1);
-        } else {
-            levelCompleteSize.x = MeasureText(levelCompleteText.c_str(), 40);
-        }
-        
-        renderSystem.drawSpacerangerText(levelCompleteText, 
-            Vector2{GameConstants::SCREEN_WIDTH/2 - levelCompleteSize.x/2, 
-                    GameConstants::SCREEN_HEIGHT/2 - 40}, 
-            40, GREEN);
-        
-        // Texto pequeño
-        Vector2 nextLevelSize;
-        if (spacerangerFontSmall.texture.id != 0) {
-            nextLevelSize = MeasureTextEx(spacerangerFontSmall, nextLevelText.c_str(), 20, 1);
-        } else {
-            nextLevelSize.x = MeasureText(nextLevelText.c_str(), 20);
-        }
-        
-        renderSystem.drawSpacerangerText(nextLevelText, 
-            Vector2{GameConstants::SCREEN_WIDTH/2 - nextLevelSize.x/2, 
-                    GameConstants::SCREEN_HEIGHT/2 + 10}, 
-            20, WHITE);
-    } else {
-        // Último nivel
-        std::string gameCompleteText = "¡JUEGO COMPLETADO!";
-        std::string backToMenuText = "Presiona ENTER para volver al menú";
-        
-        // Medir texto
-        Vector2 gameCompleteSize;
-        if (spacerangerFont.texture.id != 0) {
-            gameCompleteSize = MeasureTextEx(spacerangerFont, gameCompleteText.c_str(), 40, 1);
-        } else {
-            gameCompleteSize.x = MeasureText(gameCompleteText.c_str(), 40);
-        }
-        
-        renderSystem.drawSpacerangerText(gameCompleteText, 
-            Vector2{GameConstants::SCREEN_WIDTH/2 - gameCompleteSize.x/2, 
-                    GameConstants::SCREEN_HEIGHT/2 - 40}, 
-            40, GOLD);
-        
-        // Texto pequeño
-        Vector2 backToMenuSize;
-        if (spacerangerFontSmall.texture.id != 0) {
-            backToMenuSize = MeasureTextEx(spacerangerFontSmall, backToMenuText.c_str(), 20, 1);
-        } else {
-            backToMenuSize.x = MeasureText(backToMenuText.c_str(), 20);
-        }
-        
-        renderSystem.drawSpacerangerText(backToMenuText, 
-            Vector2{GameConstants::SCREEN_WIDTH/2 - backToMenuSize.x/2, 
-                    GameConstants::SCREEN_HEIGHT/2 + 10}, 
-            20, WHITE);
+            }
+            
+            DrawText("Controles: WASD (Master), Flechas (Slave)", 
+                     GameConstants::SCREEN_WIDTH/2 - MeasureText("Controles: WASD (Master), Flechas (Slave)", 16)/2, 
+                     GameConstants::SCREEN_HEIGHT - 25, 16, DARKGRAY);
+            break;
     }
+
+    audioOverlay.draw();
+    EndDrawing();
 }
-                
-                DrawText("Controles: WASD (Master), Flechas (Slave)", 
-                         GameConstants::SCREEN_WIDTH/2 - MeasureText("Controles: WASD (Master), Flechas (Slave)", 16)/2, 
-                         GameConstants::SCREEN_HEIGHT - 25, 16, DARKGRAY);
-                
-                break;
-        }
-        
-        audioOverlay.draw();
-        
-        EndDrawing();
-    }
 
     logger.write("=== Cerrando DuoMaze ===");
     

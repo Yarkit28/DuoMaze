@@ -1,3 +1,5 @@
+[file name]: compile_windows_corregido.sh
+[file content begin]
 #!/bin/bash
 echo "🎮 Compilando DuoMaze para Windows desde Linux..."
 echo "=================================================="
@@ -36,110 +38,91 @@ x86_64-w64-mingw32-g++ -o "$OUTPUT_EXE" "$MAIN_FILE" \
 if [ $? -eq 0 ] && [ -f "$OUTPUT_EXE" ]; then
     echo "✅ ¡Compilación exitosa!"
     
-    # Crear paquete completo con estructura actualizada de recursos
+    # Crear directorio temporal para empaquetado
+    TEMP_DIR="DuoMaze_Windows_Final"
+    FINAL_ZIP="DuoMaze_Entrega_Final.zip"
+    
+    # Limpiar directorio temporal si existe
+    if [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+    
+    # Crear estructura completa de carpetas
     echo "📦 Creando paquete de entrega..."
-    PACKAGE_DIR="DuoMaze_Windows_Final"
+    mkdir -p "$TEMP_DIR"
     
-    # Crear estructura completa de carpetas según el nuevo código
-    mkdir -p "$PACKAGE_DIR/resources/fonts"
-    mkdir -p "$PACKAGE_DIR/resources/sprites"
-    mkdir -p "$PACKAGE_DIR/resources/sound/music"
-    mkdir -p "$PACKAGE_DIR/resources/sound/sfx"
-    mkdir -p "$PACKAGE_DIR/resources/backgrounds"
+    # Copiar ejecutable al directorio raíz del paquete
+    cp "$OUTPUT_EXE" "$TEMP_DIR/"
     
-    # Copiar ejecutable
-    cp "$OUTPUT_EXE" "$PACKAGE_DIR/"
-    
-    # Copiar recursos con estructura actualizada
+    # Copiar archivos de recursos manteniendo estructura
     if [ -d "resources" ]; then
-        # Copiar fuentes (AHORA CON MÁS FUENTES)
-        if [ -d "resources/fonts" ]; then
-            cp -r resources/fonts/* "$PACKAGE_DIR/resources/fonts/" 2>/dev/null || echo "⚠️  Advertencia al copiar fuentes"
-            
-            # Verificar fuentes críticas
-            CRITICAL_FONTS=("Arrows.ttf" "upheavtt.ttf" "Inversionz.ttf" "spaceranger.ttf")
-            for font in "${CRITICAL_FONTS[@]}"; do
-                if [ ! -f "$PACKAGE_DIR/resources/fonts/$font" ]; then
-                    echo "⚠️  Fuente importante faltante: $font"
-                fi
-            done
-        else
-            echo "❌ ERROR: Carpeta 'resources/fonts' no encontrada"
-        fi
+        echo "📁 Copiando recursos..."
+        cp -r "resources" "$TEMP_DIR/"
         
-        # Copiar sprites (ahora más críticos con el nuevo sistema de niveles)
-        if [ -d "resources/sprites" ]; then
-            cp -r resources/sprites/* "$PACKAGE_DIR/resources/sprites/"
-            echo "✅ Sprites incluidos (esenciales para niveles)"
-        else
-            echo "❌ ERROR: Carpeta 'resources/sprites' no encontrada - EL JUEGO NO FUNCIONARÁ CORRECTAMENTE"
-        fi
-        
-        # Copiar música (AHORA CON 2 MÚSICAS)
-        if [ -d "resources/sound/music" ]; then
-            cp -r resources/sound/music/* "$PACKAGE_DIR/resources/sound/music/" 2>/dev/null || echo "⚠️  No hay música en nueva ubicación"
-            
-            # Verificar músicas críticas
-            if [ ! -f "$PACKAGE_DIR/resources/sound/music/Maze_Quest_Echoes.ogg" ]; then
-                echo "⚠️  Música del menú faltante: Maze_Quest_Echoes.ogg"
-            fi
-            if [ ! -f "$PACKAGE_DIR/resources/sound/music/Maze_Quest.ogg" ]; then
-                echo "⚠️  Música del juego faltante: Maze_Quest.ogg"
-            fi
-        else
-            echo "⚠️  Carpeta 'resources/sound/music' no encontrada"
-        fi
-        
-        # Copiar efectos de sonido (AHORA MÁS IMPORTANTES)
-        if [ -d "resources/sound/sfx" ]; then
-            cp -r resources/sound/sfx/* "$PACKAGE_DIR/resources/sound/sfx/" 2>/dev/null || echo "⚠️  No hay SFX aún"
-            
-            # Verificar efectos de sonido críticos
-            CRITICAL_SFX=("abrir_puerta.wav" "zelda_headlift.wav" "clic.wav")
-            for sfx in "${CRITICAL_SFX[@]}"; do
-                if [ ! -f "$PACKAGE_DIR/resources/sound/sfx/$sfx" ]; then
-                    echo "⚠️  Efecto de sonido faltante: $sfx"
-                fi
-            done
-        else
-            echo "⚠️  Carpeta 'resources/sound/sfx' no encontrada"
-        fi
-        
-        # Copiar fondos
-        if [ -d "resources/backgrounds" ]; then
-            cp -r resources/backgrounds/* "$PACKAGE_DIR/resources/backgrounds/" 2>/dev/null || echo "⚠️  No hay fondos aún"
-        fi
+        # Verificar estructura completa de carpetas
+        mkdir -p "$TEMP_DIR/resources/fonts"
+        mkdir -p "$TEMP_DIR/resources/sprites"
+        mkdir -p "$TEMP_DIR/resources/sound/music"
+        mkdir -p "$TEMP_DIR/resources/sound/sfx"
+        mkdir -p "$TEMP_DIR/resources/backgrounds"
     else
-        echo "❌ ERROR: Carpeta 'resources' no encontrada - EL JUEGO NO FUNCIONARÁ"
+        echo "⚠️  Advertencia: No se encontró carpeta 'resources'"
+        # Crear estructura vacía para evitar errores
+        mkdir -p "$TEMP_DIR/resources/fonts"
+        mkdir -p "$TEMP_DIR/resources/sprites"
+        mkdir -p "$TEMP_DIR/resources/sound/music"
+        mkdir -p "$TEMP_DIR/resources/sound/sfx"
+        mkdir -p "$TEMP_DIR/resources/backgrounds"
     fi
     
-    # BACKWARD COMPATIBILITY: Copiar música en ubicación antigua si existe
-    if [ -f "Maze_Quest.ogg" ]; then
-        mkdir -p "$PACKAGE_DIR/resources/sound/music"
-        cp Maze_Quest.ogg "$PACKAGE_DIR/resources/sound/music/"
-        echo "✅ Música incluida (ubicación antigua)"
-    fi
-    if [ -f "Maze_Quest_Echoes.ogg" ]; then
-        mkdir -p "$PACKAGE_DIR/resources/sound/music"
-        cp Maze_Quest_Echoes.ogg "$PACKAGE_DIR/resources/sound/music/"
-        echo "✅ Música del menú incluida (ubicación antigua)"
+    # BACKWARD COMPATIBILITY: Buscar recursos en ubicaciones alternativas
+    echo "🔍 Buscando recursos en ubicaciones alternativas..."
+    
+    # Buscar músicas en ubicación antigua
+    if [ -f "Maze_Quest.ogg" ] && [ ! -f "$TEMP_DIR/resources/sound/music/Maze_Quest.ogg" ]; then
+        echo "📥 Copiando Maze_Quest.ogg de ubicación antigua"
+        cp "Maze_Quest.ogg" "$TEMP_DIR/resources/sound/music/"
     fi
     
-    # Verificar sprites críticos para el nuevo sistema de niveles (ACTUALIZADO)
+    if [ -f "Maze_Quest_Echoes.ogg" ] && [ ! -f "$TEMP_DIR/resources/sound/music/Maze_Quest_Echoes.ogg" ]; then
+        echo "📥 Copiando Maze_Quest_Echoes.ogg de ubicación antigua"
+        cp "Maze_Quest_Echoes.ogg" "$TEMP_DIR/resources/sound/music/"
+    fi
+    
+    # Verificar si hay archivos en las carpetas del paquete
+    echo "📊 Verificando estructura del paquete..."
+    echo "   - Ejecutable: $( [ -f "$TEMP_DIR/DuoMaze.exe" ] && echo "✅" || echo "❌" )"
+    echo "   - Fuentes: $( [ -d "$TEMP_DIR/resources/fonts" ] && echo "✅ ($(ls "$TEMP_DIR/resources/fonts" 2>/dev/null | wc -l) fuentes)" || echo "❌" )"
+    echo "   - Sprites: $( [ -d "$TEMP_DIR/resources/sprites" ] && echo "✅ ($(ls "$TEMP_DIR/resources/sprites" 2>/dev/null | wc -l) sprites)" || echo "❌" )"
+    echo "   - Música: $( [ -d "$TEMP_DIR/resources/sound/music" ] && echo "✅ ($(ls "$TEMP_DIR/resources/sound/music" 2>/dev/null | wc -l) archivos)" || echo "❌" )"
+    echo "   - SFX: $( [ -d "$TEMP_DIR/resources/sound/sfx" ] && echo "✅ ($(ls "$TEMP_DIR/resources/sound/sfx" 2>/dev/null | wc -l) efectos)" || echo "❌" )"
+    
+    # Verificar sprites críticos para el nuevo sistema de niveles
     echo "🔍 Verificando sprites críticos..."
     CRITICAL_SPRITES=("piso.png" "pared.png" "master.png" "slave.png" "boton1.png" "boton2.png" "boton3.png" 
                      "puerta_roja_cerrada.png" "puerta_roja_abierta.png" "puerta_azul_cerrada.png" 
                      "puerta_azul_abierta.png" "puerta_morada_cerrada.png" "puerta_morada_abierta.png"
                      "obstaculo_rojo.png" "obstaculo_azul.png" "meta.png")
     
+    missing_sprites=0
     for sprite in "${CRITICAL_SPRITES[@]}"; do
-        if [ ! -f "$PACKAGE_DIR/resources/sprites/$sprite" ]; then
-            echo "⚠️  Sprite crítico faltante: $sprite"
+        if [ ! -f "$TEMP_DIR/resources/sprites/$sprite" ]; then
+            echo "   ⚠️  $sprite - FALTANTE"
+            missing_sprites=$((missing_sprites + 1))
+        else
+            echo "   ✅ $sprite - PRESENTE"
         fi
     done
     
-    # Crear archivo de instrucciones actualizado
-    cat > "$PACKAGE_DIR/INSTRUCCIONES.txt" << 'EOF'
+    if [ $missing_sprites -gt 0 ]; then
+        echo "⚠️  Advertencia: Faltan $missing_sprites sprites críticos"
+    else
+        echo "✅ Todos los sprites críticos están presentes"
+    fi
+    
+    # Crear archivo de instrucciones
+    echo "📝 Creando archivo de instrucciones..."
+    cat > "$TEMP_DIR/INSTRUCCIONES.txt" << 'EOF'
 DUO MAZE - INSTRUCCIONES (SISTEMA DE NIVELES AVANZADO)
 ======================================================
 
@@ -178,6 +161,7 @@ REQUISITOS:
 
 ESTRUCTURA ACTUALIZADA:
 ├── DuoMaze.exe
+├── INSTRUCCIONES.txt
 └── resources/
     ├── fonts/          # Fuentes del juego (Arrows.ttf, upheavtt.ttf, etc.)
     ├── sprites/        # Gráficos y texturas (ESENCIAL)
@@ -185,6 +169,13 @@ ESTRUCTURA ACTUALIZADA:
     └── sound/
         ├── music/      # Música de fondo (2 músicas diferentes)
         └── sfx/        # Efectos de sonido (abrir puertas, victoria, clics)
+
+INSTRUCCIONES DE USO:
+1. Extraer todo el contenido del ZIP
+2. Ejecutar DuoMaze.exe
+3. ¡Jugar!
+
+NOTA: Mantener todos los archivos en la misma carpeta.
 
 DESARROLLADO CON:
 - Raylib 4.5.0
@@ -196,55 +187,65 @@ DESARROLLADO CON:
 ¡Disfruta el juego cooperativo!
 EOF
 
-    # Comprimir todo
-    echo "🗜️  Comprimiendo paquete final..."
-    zip -r "DuoMaze_Entrega_Final.zip" "$PACKAGE_DIR/"
+    # Crear README adicional en la raíz del proyecto (opcional)
+    cat > "README_ENTREGA.txt" << 'EOF'
+DUO MAZE - PAQUETE DE ENTREGA
+=============================
+
+Este paquete contiene:
+1. DuoMaze_Entrega_Final.zip - Paquete completo listo para entregar
+2. DuoMaze.exe - Ejecutable compilado
+3. main_a.cpp - Código fuente principal
+
+Para probar el juego:
+1. Extraer DuoMaze_Entrega_Final.zip
+2. Ejecutar DuoMaze.exe desde la carpeta extraída
+3. Seguir instrucciones en INSTRUCCIONES.txt
+
+Estructura del ZIP:
+DuoMaze_Windows_Final/
+├── DuoMaze.exe
+├── INSTRUCCIONES.txt
+└── resources/ (todos los archivos necesarios)
+EOF
     
+    # Crear ZIP CORREGIDO - Usando el directorio como raíz del ZIP
+    echo "🗜️  Creando archivo ZIP '$FINAL_ZIP'..."
+    
+    # Cambiar al directorio temporal para crear ZIP con estructura correcta
+    cd "$TEMP_DIR"
+    zip -r "../$FINAL_ZIP" ./*
+    cd ..
+    
+    echo "✅ ZIP creado correctamente: $FINAL_ZIP"
+    
+    # Mostrar información del paquete
     echo ""
     echo "🎉 ¡PAQUETE LISTO PARA ENTREGAR!"
-    echo "📁 Archivo: DuoMaze_Entrega_Final.zip"
+    echo "📦 Archivo: $FINAL_ZIP"
+    echo "📁 Tamaño: $(du -h "$FINAL_ZIP" | cut -f1)"
     echo ""
-    echo "📋 Contenido del paquete:"
-    tree "$PACKAGE_DIR/" 2>/dev/null || ls -la "$PACKAGE_DIR/"
+    echo "📋 Contenido del ZIP:"
+    echo "======================"
+    unzip -l "$FINAL_ZIP" | head -30
+    
     echo ""
-    echo "🚀 Para probar en Linux: wine DuoMaze.exe"
+    echo "🔧 PARA PROBAR:"
+    echo "   1. Extraer el ZIP: unzip $FINAL_ZIP"
+    echo "   2. Entrar en la carpeta: cd DuoMaze_Windows_Final"
+    echo "   3. Ejecutar con Wine: wine DuoMaze.exe"
     echo ""
-    echo "🔍 ESTADO DEL PAQUETE:"
+    echo "📝 PARA ENTREGAR:"
+    echo "   - Entregar solo: $FINAL_ZIP"
+    echo "   - El ZIP contiene estructura completa con carpeta contenedora"
+    echo "   - Al extraer se creará: DuoMaze_Windows_Final/"
     
-    # Verificar sprites
-    if [ -d "$PACKAGE_DIR/resources/sprites" ] && [ "$(ls -A $PACKAGE_DIR/resources/sprites/ 2>/dev/null | wc -l)" -gt 5 ]; then
-        echo "✅ Sprites: OK (sistema de niveles funcionará)"
-    else
-        echo "❌ Sprites: FALTANTES - el juego no funcionará correctamente"
-    fi
-    
-    # Verificar músicas
-    MUSIC_OK=true
-    if [ ! -f "$PACKAGE_DIR/resources/sound/music/Maze_Quest.ogg" ]; then
-        echo "⚠️  Música: Maze_Quest.ogg faltante"
-        MUSIC_OK=false
-    fi
-    if [ ! -f "$PACKAGE_DIR/resources/sound/music/Maze_Quest_Echoes.ogg" ]; then
-        echo "⚠️  Música: Maze_Quest_Echoes.ogg (menú) faltante"
-        MUSIC_OK=false
-    fi
-    if [ "$MUSIC_OK" = true ]; then
-        echo "✅ Música: OK (2 músicas incluidas)"
-    fi
-    
-    # Verificar fuentes
-    FONT_OK=true
-    for font in "Arrows.ttf" "upheavtt.ttf" "Inversionz.ttf" "spaceranger.ttf"; do
-        if [ ! -f "$PACKAGE_DIR/resources/fonts/$font" ]; then
-            echo "⚠️  Fuente: $font faltante"
-            FONT_OK=false
-        fi
-    done
-    if [ "$FONT_OK" = true ]; then
-        echo "✅ Fuentes: OK (todas las fuentes incluidas)"
-    fi
+    # Limpiar directorio temporal (opcional, comentar para debug)
+    # echo "🧹 Limpiando directorio temporal..."
+    # rm -rf "$TEMP_DIR"
     
 else
     echo "❌ Error en la compilación"
     exit 1
 fi
+[file content end]
